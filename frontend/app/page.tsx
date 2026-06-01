@@ -88,7 +88,7 @@ export default function Home() {
         setDescription(data.description || '');
         setStatus('✅ 3D Model Generated!');
       } else {
-        setError('Failed: ' + (data.error || 'Unknown error'));
+        setError('Failed: ' + (JSON.stringify(data)));
       }
     } catch (e: any) {
       setError('Error: ' + e?.message);
