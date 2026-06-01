@@ -127,6 +127,12 @@ def find_shape(prompt: str) -> str:
             code = code[code.find(keyword):]
             break
     
+    # Fix common LLM mistakes
+    code = code.replace("union{}", "union(){}")
+    code = code.replace("union {}", "union(){}")
+    code = code.replace("difference{}", "difference(){}")
+    code = code.replace("intersection{}", "intersection(){}")
+    
     # If code still invalid, use simple fallback
     if not any(k in code for k in ["cube", "sphere", "cylinder", "union"]):
         code = "union() {\n  sphere(r=10);\n  translate([0,0,10]) cube([5,5,5], center=true);\n}"
@@ -204,6 +210,12 @@ MODIFIED CODE:"""
         if keyword in code:
             code = code[code.find(keyword):]
             break
+    
+    # Fix common LLM mistakes
+    code = code.replace("union{}", "union(){}")
+    code = code.replace("union {}", "union(){}")
+    code = code.replace("difference{}", "difference(){}")
+    code = code.replace("intersection{}", "intersection(){}")
     
     # If code still invalid, use simple fallback
     if not any(k in code for k in ["cube", "sphere", "cylinder", "union"]):
