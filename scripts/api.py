@@ -257,7 +257,7 @@ async def generate_from_image(file: UploadFile = File(...)):
     # Step 2: Generate OpenSCAD
     scad_response = groq_client.chat.completions.create(
         model="llama-3.1-8b-instant",
-        messages=[{"role": "user", "content": "Generate valid OpenSCAD code. Rules: 1) Use ONLY cube(), sphere(), cylinder(), translate(), union(){} 2) union() must use curly braces NOT square brackets 3) NO variables 4) NO loops 5) NO .scale() 6) NO * operator 7) Return ONLY the code. Simple shape for: " + description}],
+        messages=[{"role": "user", "content": "Generate simple valid OpenSCAD code. STRICT RULES: 1) Use ONLY these functions: cube(), sphere(), cylinder(), translate(), union(){} 2) NO variables (no x=, no body=, no face=) 3) NO loops 4) NO comments 5) union() uses curly braces {} only 6) Maximum 10 lines 7) Return ONLY the OpenSCAD code, nothing else. Object: " + description}],
         max_tokens=500
     )
     scad_code = scad_response.choices[0].message.content.strip()
