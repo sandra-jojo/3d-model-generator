@@ -125,6 +125,13 @@ export default function Home() {
               {loading ? '⏳ Generating...' : '🚀 Generate 3D Model'}
             </button>
             {image && (
+            <>
+              <a href={`${API}/download/stl`} download="model.stl"
+                className="block text-center w-full bg-green-600 hover:bg-green-700 rounded-xl py-3 font-semibold transition mt-3">
+                ⬇️ Download STL
+             </a>
+            </>
+            )}
               <>
                 <h2 className="text-xl font-semibold mb-2">🔧 Refine</h2>
                 <textarea
