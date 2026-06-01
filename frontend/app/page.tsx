@@ -10,7 +10,7 @@ export default function Home() {
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
   const [mode, setMode] = useState('openscad');
-  const API = 'http://172.20.255.28:8000';
+  const API = 'https://3d-model-generator-production.up.railway.app';
 
   const generate = async () => {
     setLoading(true);
