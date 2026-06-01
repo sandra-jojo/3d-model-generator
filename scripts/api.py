@@ -114,8 +114,8 @@ def find_shape(prompt: str) -> str:
 def render(scad_code, scad_path, png_path, stl_path):
     with open(scad_path, "w") as f:
         f.write(scad_code)
-    subprocess.run(["openscad","--imgsize=800,600","--autocenter","--viewall","-o",png_path,scad_path], capture_output=True)
-    subprocess.run(["openscad","-o",stl_path,scad_path], capture_output=True)
+    subprocess.run(["xvfb-run","-a","openscad","--imgsize=800,600","--autocenter","--viewall","-o",png_path,scad_path], capture_output=True)
+    subprocess.run(["xvfb-run","-a","openscad","-o",stl_path,scad_path], capture_output=True)
 
 @app.post("/generate")
 async def generate(request: PromptRequest):
@@ -278,8 +278,8 @@ async def generate_from_image(file: UploadFile = File(...)):
     import subprocess
     with open(scad_path, "w") as f:
         f.write(scad_code)
-    subprocess.run(["openscad","--imgsize=800,600","--autocenter","--viewall","-o",png_path,scad_path], capture_output=True)
-    subprocess.run(["openscad","-o",stl_path,scad_path], capture_output=True)
+    subprocess.run(["xvfb-run","-a","openscad","--imgsize=800,600","--autocenter","--viewall","-o",png_path,scad_path], capture_output=True)
+    subprocess.run(["xvfb-run","-a","openscad","-o",stl_path,scad_path], capture_output=True)
     
     import os
     if not os.path.exists(png_path):
