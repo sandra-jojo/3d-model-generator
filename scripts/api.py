@@ -225,3 +225,72 @@ async def route(request: PromptRequest):
         "parametric_score": parametric_score,
         "ai_score": ai_score
     }
+
+from fastapi import UploadFile, File
+import base64
+
+@app.post("/generate_from_image")
+async def generate_from_image(file: UploadFile = File(...)):
+    import os
+    from groq import Groq
+    
+    # Read image
+    image_data = await file.read()
+    image_base64 = base64.b64encode(image_data).decode()
+    
+    groq_client = Groq(api_key=os.environ.get("GROQ_API_KEY", ""))
+    
+    # Step 1: Vision LLM — describe image
+    vision_response = groq_client.chat.completions.create(
+        model="meta-llama/llama-4-scout-17b-16e-instruct",
+        messages=[{
+            "role": "user",
+            "content": [
+                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"}},
+                {"type": "text", "text": "Describe this object in 1 sentence for 3D modeling. Focus on shape, size, key features."}
+            ]
+        }],
+        max_tokens=100
+    )
+    description = vision_response.choices[0].message.content.strip()
+    
+    # Step 2: Generate OpenSCAD
+    scad_response = groq_client.chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=[{"role": "user", "content": f"Generate simple OpenSCAD code using ONLY cube(), sphere(), cylinder(), translate(), union(). NO variables. NO loops. Return ONLY code. For: {description}"}],
+        max_tokens=500
+    )
+    scad_code = scad_response.choices[0].message.content.strip()
+    import re
+    scad_code = re.sub(r'```[a-zA-Z]*', '', scad_code).replace('```', '').strip()
+    for keyword in ['union','difference','cube','cylinder','sphere','translate']:
+        if keyword in scad_code:
+            scad_code = scad_code[scad_code.find(keyword):]
+            break
+    
+    # Step 3: Render
+    from datetime import datetime
+    name = datetime.now().strftime("%Y%m%d_%H%M%S")
+    scad_path = f"/app/models/{name}.scad"
+    png_path = f"/app/outputs/{name}.png"
+    stl_path = f"/app/outputs/{name}.stl"
+    
+    import subprocess
+    with open(scad_path, "w") as f:
+        f.write(scad_code)
+    subprocess.run(["openscad","--imgsize=800,600","--autocenter","--viewall","-o",png_path,scad_path], capture_output=True)
+    subprocess.run(["openscad","-o",stl_path,scad_path], capture_output=True)
+    
+    import os
+    if not os.path.exists(png_path):
+        return {"error": "Render failed", "description": description, "scad_code": scad_code}
+    
+    with open(png_path, "rb") as f:
+        img_base64 = base64.b64encode(f.read()).decode()
+    
+    return {
+        "description": description,
+        "scad_code": scad_code,
+        "image": img_base64,
+        "status": "success"
+    }
