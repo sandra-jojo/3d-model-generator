@@ -297,3 +297,14 @@ async def generate_from_image(file: UploadFile = File(...)):
         "image": img_base64,
         "status": "success"
     }
+
+from fastapi.responses import FileResponse
+import glob
+
+@app.get("/download/stl")
+async def download_stl():
+    files = glob.glob("/app/outputs/*.stl")
+    if not files:
+        return {"error": "No STL file found"}
+    latest = max(files, key=os.path.getctime)
+    return FileResponse(latest, filename="model.stl", media_type="application/octet-stream")
