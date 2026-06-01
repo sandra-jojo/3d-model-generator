@@ -54,7 +54,7 @@ export default function Home() {
       <h1 className="text-3xl font-bold text-center mb-8">🧊 LLM-Based 3D Model Generator</h1>
       <div className="max-w-6xl mx-auto flex gap-4 mb-6">
         <button onClick={() => setMode('openscad')} className={`flex-1 py-3 rounded-xl font-semibold ${mode === 'openscad' ? 'bg-blue-600' : 'bg-gray-800'}`}>📐 Text → 3D</button>
-        <button onClick={() => setMode('ai')} className={`flex-1 py-3 rounded-xl font-semibold ${mode === 'ai' ? 'bg-purple-600' : 'bg-gray-800'}`}>🧠 Image → 3D (AI)</button>
+        <button onClick={() => setMode('ai')} className={`flex-1 py-3 rounded-xl font-semibold ${mode === 'ai' ? 'bg-purple-600' : 'bg-gray-800'}`}>🧠 Image → 3D</button>
       </div>
 
       {mode === 'openscad' ? (
@@ -87,8 +87,8 @@ export default function Home() {
       ) : (
         <div className="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="bg-gray-900 rounded-2xl p-6">
-            <h2 className="text-xl font-semibold mb-4">📸 Upload Image → AI → 3D</h2>
-            <p className="text-gray-400 text-sm mb-4">LLM analyzes your image → generates 3D model!</p>
+            <h2 className="text-xl font-semibold mb-4">📸 LLM Vision → 3D</h2>
+            <p className="text-gray-400 text-sm mb-4">LLM analyzes image → OpenSCAD → 3D model!</p>
             <input ref={fileRef} type="file" accept="image/*" className="w-full bg-gray-800 rounded-xl p-4 text-white mb-4"/>
             <button onClick={generateFromImage} disabled={loading} className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 rounded-xl py-3 font-semibold transition">
               {loading ? '⏳ AI Processing...' : '🧠 Generate 3D from Image'}
@@ -104,6 +104,10 @@ export default function Home() {
             {loading && <div className="text-center"><p className="text-4xl mb-4 animate-pulse">⚙️</p><p className="text-gray-400">{status}</p></div>}
             {image && !loading && <img src={image} alt="3D" className="rounded-xl w-full"/>}
             {!image && !loading && <div className="text-gray-500 text-center"><p className="text-6xl mb-4">🧊</p><p>Upload an image to generate 3D!</p></div>}
+          </div>
+          <div className="max-w-6xl mx-auto col-span-2 mt-6">
+            <h2 className="text-xl font-semibold mb-4 text-center">✨ Stable Fast 3D — High Quality Image to 3D</h2>
+            <iframe src="https://stabilityai-stable-fast-3d.hf.space" width="100%" height="700" className="rounded-xl border-0"></iframe>
           </div>
         </div>
       )}
