@@ -143,15 +143,15 @@ def find_shape(prompt: str) -> str:
 def render(scad_code, scad_path, png_path, stl_path):
     with open(scad_path, "w") as f:
         f.write(scad_code)
-    subprocess.run(["xvfb-run","-a","openscad","--imgsize=800,600","--autocenter","--viewall","-o",png_path,scad_path], capture_output=True)
-    subprocess.run(["xvfb-run","-a","openscad","-o",stl_path,scad_path], capture_output=True)
+    subprocess.run(["openscad","--imgsize=800,600","--autocenter","--viewall","-o",png_path,scad_path], capture_output=True)
+    subprocess.run(["openscad","-o",stl_path,scad_path], capture_output=True)
 
 @app.post("/generate")
 async def generate(request: PromptRequest):
     name = datetime.now().strftime("%Y%m%d_%H%M%S")
-    scad_path = f"/app/models/{name}.scad"
-    png_path = f"/app/outputs/{name}.png"
-    stl_path = f"/app/outputs/{name}.stl"
+    scad_path = f"{os.path.dirname(os.path.dirname(os.path.abspath(__file__)))}/models/{name}.scad"
+    png_path = f"{os.path.dirname(os.path.dirname(os.path.abspath(__file__)))}/outputs/{name}.png"
+    stl_path = f"{os.path.dirname(os.path.dirname(os.path.abspath(__file__)))}/outputs/{name}.stl"
     scad_code = find_shape(request.prompt)
     render(scad_code, scad_path, png_path, stl_path)
     if not os.path.exists(png_path):
@@ -163,9 +163,9 @@ async def generate(request: PromptRequest):
 @app.post("/refine")
 async def refine(request: RefineRequest):
     name = datetime.now().strftime("%Y%m%d_%H%M%S")
-    scad_path = f"/app/models/{name}.scad"
-    png_path = f"/app/outputs/{name}.png"
-    stl_path = f"/app/outputs/{name}.stl"
+    scad_path = f"{os.path.dirname(os.path.dirname(os.path.abspath(__file__)))}/models/{name}.scad"
+    png_path = f"{os.path.dirname(os.path.dirname(os.path.abspath(__file__)))}/outputs/{name}.png"
+    stl_path = f"{os.path.dirname(os.path.dirname(os.path.abspath(__file__)))}/outputs/{name}.stl"
 
     system_prompt = f"""You are an OpenSCAD code modifier.
 CURRENT CODE:
@@ -327,15 +327,15 @@ async def generate_from_image(file: UploadFile = File(...)):
     # Step 3: Render
     from datetime import datetime
     name = datetime.now().strftime("%Y%m%d_%H%M%S")
-    scad_path = f"/app/models/{name}.scad"
-    png_path = f"/app/outputs/{name}.png"
-    stl_path = f"/app/outputs/{name}.stl"
+    scad_path = f"{os.path.dirname(os.path.dirname(os.path.abspath(__file__)))}/models/{name}.scad"
+    png_path = f"{os.path.dirname(os.path.dirname(os.path.abspath(__file__)))}/outputs/{name}.png"
+    stl_path = f"{os.path.dirname(os.path.dirname(os.path.abspath(__file__)))}/outputs/{name}.stl"
     
     import subprocess
     with open(scad_path, "w") as f:
         f.write(scad_code)
-    subprocess.run(["xvfb-run","-a","openscad","--imgsize=800,600","--autocenter","--viewall","-o",png_path,scad_path], capture_output=True)
-    subprocess.run(["xvfb-run","-a","openscad","-o",stl_path,scad_path], capture_output=True)
+    subprocess.run(["openscad","--imgsize=800,600","--autocenter","--viewall","-o",png_path,scad_path], capture_output=True)
+    subprocess.run(["openscad","-o",stl_path,scad_path], capture_output=True)
     
     import os
     if not os.path.exists(png_path):
