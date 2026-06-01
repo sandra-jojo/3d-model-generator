@@ -283,7 +283,10 @@ async def generate_from_image(file: UploadFile = File(...)):
     
     import os
     if not os.path.exists(png_path):
-        return {"error": "Render failed", "description": description, "scad_code": scad_code}
+        # Debug info
+        import subprocess as sp
+        test = sp.run(["which", "openscad"], capture_output=True, text=True)
+        return {"error": "Render failed", "description": description, "scad_code": scad_code, "openscad_path": test.stdout.strip(), "scad_content": scad_code}
     
     with open(png_path, "rb") as f:
         img_base64 = base64.b64encode(f.read()).decode()
