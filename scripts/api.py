@@ -1,4 +1,6 @@
 from fastapi import FastAPI
+from dotenv import load_dotenv
+load_dotenv()
 from groq import Groq
 import os
 from fastapi.middleware.cors import CORSMiddleware
