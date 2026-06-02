@@ -303,7 +303,7 @@ async def route(request: PromptRequest):
     
     # AI keywords  
     ai_keywords = [
-        'realistic', 'organic', 'animal', 'person', 'face', 'dragon',
+        'realistic', 'organic', 'animal', 'person', 'face', 'dragon', 'futuristic', 'abstract', 'spaceship', 'fantasy',
         'complex', 'detailed', 'artistic', 'sculpture', 'photo'
     ]
     
