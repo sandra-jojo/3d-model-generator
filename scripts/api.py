@@ -320,6 +320,7 @@ async def route(request: PromptRequest):
         "path": path,
         "parametric_score": parametric_score,
         "ai_score": ai_score
+    
     }
 
 from fastapi import UploadFile, File
