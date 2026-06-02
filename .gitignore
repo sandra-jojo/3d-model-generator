@@ -3,3 +3,7 @@ outputs/
 venv/
 .next/
 node_modules/
+.env
+models/*.scad
+outputs/*
+scripts/api_backup.py
