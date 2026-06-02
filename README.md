@@ -20,3 +20,5 @@ A web application that generates 3D models from text descriptions and images usi
 
 ## 👥 Team
 - Sandra Jojo
+- Athulya Wilson
+- Shyby Joseph
