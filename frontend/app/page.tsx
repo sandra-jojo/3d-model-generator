@@ -21,7 +21,7 @@ export default function Home() {
       const data = await res.json();
       if (data.image) { setImage('data:image/png;base64,' + data.image); setCode(data.scad_code || ''); setStatus(''); }
       else setError('Render failed!');
-    } catch (e: any) { setError('Error: ' + e?.message); }
+    } catch (e) { setError('Error: ' + (e instanceof Error ? e.message : String(e))); }
     setLoading(false);
   };
 
@@ -31,7 +31,7 @@ export default function Home() {
       const res = await fetch(`${API}/refine`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ previous_scad: code || prompt, instruction: refineText }) });
       const data = await res.json();
       if (data.image) { setImage('data:image/png;base64,' + data.image); if (data.scad_code) setCode(data.scad_code); setRefineText(''); setStatus('Refined!'); }
-    } catch (e: any) { setError('Error: ' + e?.message); }
+    } catch (e) { setError('Error: ' + (e instanceof Error ? e.message : String(e))); }
     setLoading(false);
   };
 
@@ -45,7 +45,7 @@ export default function Home() {
       const data = await res.json();
       if (data.image) { setImage('data:image/png;base64,' + data.image); setCode(data.scad_code || ''); setDescription(data.description || ''); setStatus('3D Model Generated!'); }
       else setError('Failed: ' + JSON.stringify(data));
-    } catch (e: any) { setError('Error: ' + e?.message); }
+    } catch (e) { setError('Error: ' + (e instanceof Error ? e.message : String(e))); }
     setLoading(false);
   };
 

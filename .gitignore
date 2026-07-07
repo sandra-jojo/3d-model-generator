@@ -1,9 +1,17 @@
-models/libraries/
-outputs/
+# Python
+__pycache__/
+*.pyc
 venv/
-.next/
-node_modules/
 .env
+
+# Node / Next.js
+node_modules/
+.next/
+
+# Generated at runtime (kept out of version control)
 models/*.scad
+models/libraries/
 outputs/*
+
+# Local backups
 scripts/api_backup.py

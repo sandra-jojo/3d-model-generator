@@ -43,6 +43,59 @@ def find_shape_in_library(text):
             return code
     return None
 
+
+# Known-good shape used whenever LLM output cannot be salvaged.
+FALLBACK_SCAD = "union() {\n  sphere(r=10);\n  translate([0,0,10]) cube([5,5,5], center=true);\n}"
+
+# A line is a variable assignment if it starts with `name =` (e.g. "r = 5;").
+# Parameters inside calls like cylinder(h=20, r=3) must NOT match.
+_ASSIGNMENT_RE = re.compile(r"^[A-Za-z_]\w*\s*=")
+
+
+def sanitize_scad(code: str) -> str:
+    """Clean raw LLM output into renderable OpenSCAD code.
+
+    Pipeline (grounding/safety layer between the LLM and OpenSCAD):
+      1. Strip markdown code fences.
+      2. Drop variable assignments and comments (disallowed by our prompt).
+      3. Trim any leading prose before the first OpenSCAD keyword.
+      4. Fix common LLM syntax mistakes (e.g. ``union{}`` -> ``union(){}``).
+      5. Fall back to a known-good shape if nothing valid remains.
+    """
+    # 1. Strip markdown fences
+    code = re.sub(r"```[a-zA-Z]*", "", code).replace("```", "").strip()
+
+    # 2. Remove variable assignments and comments
+    clean_lines = []
+    for line in code.split("\n"):
+        stripped = line.strip()
+        if _ASSIGNMENT_RE.match(stripped):
+            continue
+        if stripped.startswith("//"):
+            continue
+        clean_lines.append(line)
+    code = "\n".join(clean_lines).strip()
+
+    # 3. Trim leading prose before the first OpenSCAD keyword
+    for keyword in ["union", "difference", "intersection", "cube", "cylinder", "sphere", "translate"]:
+        if keyword in code:
+            code = code[code.find(keyword):]
+            break
+
+    # 4. Fix common LLM syntax mistakes
+    for wrong, right in [
+        ("union{}", "union(){}"),
+        ("union {}", "union(){}"),
+        ("difference{}", "difference(){}"),
+        ("intersection{}", "intersection(){}"),
+    ]:
+        code = code.replace(wrong, right)
+
+    # 5. Fallback if nothing valid remains
+    if not any(k in code for k in ["cube", "sphere", "cylinder", "union"]):
+        code = FALLBACK_SCAD
+    return code
+
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
@@ -143,39 +196,7 @@ def find_shape(prompt: str) -> str:
         max_tokens=500
     )
     code = response.choices[0].message.content.strip()
-    code = re.sub(r'```[a-zA-Z]*', '', code)
-    code = code.replace('```', '').strip()
-    # Clean markdown
-    code = re.sub(r"```[a-zA-Z]*", "", code).replace("```", "").strip()
-    
-    # Remove variable assignments
-    lines = code.split("\n")
-    clean_lines = []
-    for line in lines:
-        stripped = line.strip()
-        # Skip variable assignments and comments
-        if "=" in stripped and not stripped.startswith("translate") and not stripped.startswith("rotate") and not stripped.startswith("scale"):
-            continue
-        if stripped.startswith("//"):
-            continue
-        clean_lines.append(line)
-    code = "\n".join(clean_lines).strip()
-    
-    # Find start of valid OpenSCAD
-    for keyword in ["union", "difference", "intersection", "cube", "cylinder", "sphere", "translate"]:
-        if keyword in code:
-            code = code[code.find(keyword):]
-            break
-    
-    # Fix common LLM mistakes
-    code = code.replace("union{}", "union(){}")
-    code = code.replace("union {}", "union(){}")
-    code = code.replace("difference{}", "difference(){}")
-    code = code.replace("intersection{}", "intersection(){}")
-    
-    # If code still invalid, use simple fallback
-    if not any(k in code for k in ["cube", "sphere", "cylinder", "union"]):
-        code = "union() {\n  sphere(r=10);\n  translate([0,0,10]) cube([5,5,5], center=true);\n}"
+    code = sanitize_scad(code)
     return code
 
 def render(scad_code, scad_path, png_path, stl_path):
@@ -229,39 +250,7 @@ MODIFIED CODE:"""
         max_tokens=500
     )
     code = response.choices[0].message.content.strip()
-    code = re.sub(r'```[a-zA-Z]*', '', code)
-    code = code.replace('```', '').strip()
-    # Clean markdown
-    code = re.sub(r"```[a-zA-Z]*", "", code).replace("```", "").strip()
-    
-    # Remove variable assignments
-    lines = code.split("\n")
-    clean_lines = []
-    for line in lines:
-        stripped = line.strip()
-        # Skip variable assignments and comments
-        if "=" in stripped and not stripped.startswith("translate") and not stripped.startswith("rotate") and not stripped.startswith("scale"):
-            continue
-        if stripped.startswith("//"):
-            continue
-        clean_lines.append(line)
-    code = "\n".join(clean_lines).strip()
-    
-    # Find start of valid OpenSCAD
-    for keyword in ["union", "difference", "intersection", "cube", "cylinder", "sphere", "translate"]:
-        if keyword in code:
-            code = code[code.find(keyword):]
-            break
-    
-    # Fix common LLM mistakes
-    code = code.replace("union{}", "union(){}")
-    code = code.replace("union {}", "union(){}")
-    code = code.replace("difference{}", "difference(){}")
-    code = code.replace("intersection{}", "intersection(){}")
-    
-    # If code still invalid, use simple fallback
-    if not any(k in code for k in ["cube", "sphere", "cylinder", "union"]):
-        code = "union() {\n  sphere(r=10);\n  translate([0,0,10]) cube([5,5,5], center=true);\n}"
+    code = sanitize_scad(code)
 
     # fallback — previous_scad use ചെയ്യൂ
     if not code.strip():
@@ -362,12 +351,7 @@ async def generate_from_image(file: UploadFile = File(...)):
             max_tokens=500
         )
         scad_code = scad_response.choices[0].message.content.strip()
-    import re
-    scad_code = re.sub(r'```[a-zA-Z]*', '', scad_code).replace('```', '').strip()
-    for keyword in ['union','difference','cube','cylinder','sphere','translate']:
-        if keyword in scad_code:
-            scad_code = scad_code[scad_code.find(keyword):]
-            break
+    scad_code = sanitize_scad(scad_code)
     
     # Step 3: Render
     from datetime import datetime
