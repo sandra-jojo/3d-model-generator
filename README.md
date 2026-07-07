@@ -29,10 +29,6 @@ Instead of processing simple geometric shapes through expensive multi-view diffu
 * **Parametric Engine (Near-Zero Cost):** Prompts containing explicit metrics or structural geometries (e.g., *"a simple box 20mm wide"*) are routed to programmatic OpenSCAD generators.
 * **AI Engine (High Fidelity):** Complex, organic, or abstract commands (e.g., *"a realistic organic dragon"*) bypass basic generators and trigger deep LLM parsing via Groq.
 
-### 2. Prompt Grounding & Security Guardrails
-* **Grounding:** Prompts routed to Groq are augmented with structural bounding wrappers to ensure generated OpenSCAD/mesh outputs remain manifold, water-tight, and printable.
-* **Input Sanitization:** User prompts are fully cleaned of hidden system macro strings or structural comment injections to protect system processes (`test_sanitize_removes_comments`).
-
 ---
 
 ## ⚙️ Engineering Practice & CI/CD 
@@ -45,3 +41,5 @@ We maintain strict test-driven isolation and code quality metrics.
 # To run the test suite locally:
 source venv/bin/activate
 pytest tests/
+
+
