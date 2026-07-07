@@ -42,13 +42,17 @@ We maintain strict test-driven isolation and code quality metrics.
 source venv/bin/activate
 pytest tests/
 
+```
+
+---
+
 ## 🛡️ Innovation, Ethics, & Safety Guardrails
 
 This project is built with a strong focus on engineering ethics, user data privacy, and foundational LLM safety patterns.
 
 ### 1. Input Safety & Content Moderation
 * **Structural Intent Filters:** System prompts explicitly instruct the Groq LLM layer to reject requests attempting to generate dangerous materials, weapons, or explicit intellectual property.
-* **Fallback Degradation:** If an invalid, unsafe, or malformed generation request passes the initial boundary, the backend router naturally routes to a safe, pre-calculated geometry standard (e.g., standard fallback primitive shapes) rather than executing unpredictable string generations.
+* **Fallback Degradation:** If an invalid, unsafe, or malformed generation request passes the initial boundary, the backend router naturally routes to a safe, pre-calculated geometry standard rather than executing unpredictable string generations.
 
 ### 2. Algorithmic Bias Mitigation
 * **Style Diversity Injection:** Standard prompts are automatically enriched with grounding tokens behind the scenes. This ensures that abstract generic descriptions (e.g., "a house" or "a chair") output structurally diverse, globally representative geometric parameters rather than defaulting to single regional cultural biases.
@@ -56,4 +60,3 @@ This project is built with a strong focus on engineering ethics, user data priva
 ### 3. Data Privacy & Secrets Management
 * **Zero-Log Input Processing:** User-uploaded vision files and conversational text prompts are processed ephemerally. Images are transmitted directly to the Groq Vision cloud infrastructure over encrypted HTTPS paths and are completely purged from backend session environments post-rendering.
 * **Commit Ledger Security:** Full repository sanitation was performed using automated commit filters to permanently expunge active runtime secrets from tracking trees, ensuring cloud infrastructure API keys remain entirely managed via secure Railway and Vercel container variables.
-
