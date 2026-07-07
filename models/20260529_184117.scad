@@ -1,5 +1,0 @@
-union() {
-  sphere(r=15.0);
-  translate([0.0,0.0,27.0]) sphere(r=10.5);
-  translate([0.0,0.0,42.0]) sphere(r=7.5);
-}
