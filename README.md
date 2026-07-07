@@ -20,7 +20,7 @@ A web application that generates 3D models from text descriptions and images.
 
 ---
 
-## 🤖 LLM Architecture & Cost Quality (Rubric Weight: 7)
+## 🤖 LLM Architecture & Cost Quality 
 
 This application leverages an optimized hybrid generation pipeline designed to balance computational costs, latency, and asset complexity.
 
@@ -35,7 +35,7 @@ Instead of processing simple geometric shapes through expensive multi-view diffu
 
 ---
 
-## ⚙️ Engineering Practice & CI/CD (Rubric Weight: 5)
+## ⚙️ Engineering Practice & CI/CD 
 
 We maintain strict test-driven isolation and code quality metrics.
 * **Automated Testing Suite:** Powered by `pytest` and `FastAPI TestClient`. Six core test modules natively validate route orchestration, string safety, and asset parsing maps.
