@@ -4,3 +4,4 @@ pydantic
 openai
 python-multipart
 python-dotenv
+gradio_client

@@ -684,3 +684,350 @@ async def tripo_task_status(task_id: str):
             return resp.json()
         except httpx.HTTPError as e:
             raise HTTPException(status_code=502, detail=f"Tripo poll error: {e}")
+
+
+# ─── HuggingFace Spaces Integration ─────────────────────────────────
+# Calls free HuggingFace Spaces via gradio_client for 3D model generation.
+# No API key required (optional HF_TOKEN for higher rate limits).
+
+HF_TOKEN = os.environ.get("HF_TOKEN", "")
+
+# Space URLs
+HF_TRIPOSR_URL = "https://stabilityai-triposr.hf.space"
+HF_STABLE_FAST_3D_URL = "https://stabilityai-stable-fast-3d.hf.space"
+HF_HUNYUAN3D_URL = "https://tencent-hunyuan3d-2.hf.space"
+
+
+def _hf_headers():
+    """Build optional auth headers for HF Spaces."""
+    if HF_TOKEN:
+        return {"Authorization": f"Bearer {HF_TOKEN}"}
+    return {}
+
+
+def _hf_client(space_url: str):
+    """Create a fresh gradio_client.Client for a Space. Don't cache — Spaces restart."""
+    from gradio_client import Client
+    kwargs = {}
+    if HF_TOKEN:
+        kwargs["hf_token"] = HF_TOKEN
+    return Client(space_url, **kwargs)
+
+
+def _save_upload_to_temp(file: UploadFile) -> str:
+    """Save an UploadFile to a temp path and return the path for gradio_client.handle_file()."""
+    import tempfile
+    suffix = os.path.splitext(file.filename or "image.png")[1] or ".png"
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    tmp.write(file.file.read())
+    tmp.close()
+    return tmp.name
+
+
+@app.post("/hf/triposr")
+async def hf_triposr(image: UploadFile = File(...)):
+    """Image → 3D via TripoSR HuggingFace Space.
+
+    Calls /preprocess (remove background) then /generate (3D reconstruction).
+    Returns OBJ + GLB model URLs.
+    """
+    from gradio_client import Client, handle_file
+
+    tmp_path = _save_upload_to_temp(image)
+
+    def _run():
+        client = _hf_client(HF_TRIPOSR_URL)
+        # Step 1: preprocess — remove background
+        result = client.predict(
+            handle_file(tmp_path),   # image
+            True,                      # remove_background
+            0.5,                       # foreground_ratio
+            api_name="/preprocess",
+        )
+        # result is the processed image (filepath on the Space's server)
+        processed_image = result if isinstance(result, str) else result[0]
+
+        # Step 2: generate 3D model
+        gen_result = client.predict(
+            processed_image,           # processed image
+            32,                         # resolution
+            api_name="/generate",
+        )
+        return gen_result
+
+    try:
+        result = await asyncio.to_thread(_run)
+    except Exception as e:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        return {"error": "Space unavailable", "space": "triposr", "detail": str(e)}
+
+    try:
+        os.unlink(tmp_path)
+    except OSError:
+        pass
+
+    # Parse result — TripoSR returns (obj_path, glb_path) or similar structure
+    obj_url, glb_url = None, None
+    if isinstance(result, (list, tuple)):
+        for item in result:
+            if isinstance(item, str):
+                if item.endswith(".obj"):
+                    obj_url = item
+                elif item.endswith(".glb"):
+                    glb_url = item
+            elif isinstance(item, (list, tuple)):
+                for sub in item:
+                    if isinstance(sub, str):
+                        if sub.endswith(".obj"):
+                            obj_url = sub
+                        elif sub.endswith(".glb"):
+                            glb_url = sub
+    elif isinstance(result, str):
+        if result.endswith(".obj"):
+            obj_url = result
+        elif result.endswith(".glb"):
+            glb_url = result
+
+    return {
+        "status": "success",
+        "space": "triposr",
+        "obj_url": obj_url,
+        "glb_url": glb_url,
+        "raw": str(result),
+    }
+
+
+@app.post("/hf/stable-fast-3d")
+async def hf_stable_fast_3d(image: UploadFile = File(...)):
+    """Image → 3D via Stable Fast 3D HuggingFace Space.
+
+    Returns GLB model URL.
+    """
+    from gradio_client import Client, handle_file
+
+    tmp_path = _save_upload_to_temp(image)
+
+    def _run():
+        client = _hf_client(HF_STABLE_FAST_3D_URL)
+        result = client.predict(
+            handle_file(tmp_path),     # input_image
+            0.85,                        # foreground_ratio
+            "None",                      # remesh_option
+            -1,                          # vertex_count
+            1024,                        # texture_size
+            api_name="/run_button",
+        )
+        return result
+
+    try:
+        result = await asyncio.to_thread(_run)
+    except Exception as e:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        return {"error": "Space unavailable", "space": "stable_fast_3d", "detail": str(e)}
+
+    try:
+        os.unlink(tmp_path)
+    except OSError:
+        pass
+
+    # Parse result — Stable Fast 3D returns GLB path
+    glb_url = None
+    if isinstance(result, str):
+        glb_url = result
+    elif isinstance(result, (list, tuple)):
+        for item in result:
+            if isinstance(item, str) and item.endswith(".glb"):
+                glb_url = item
+                break
+            if isinstance(item, (list, tuple)):
+                for sub in item:
+                    if isinstance(sub, str) and sub.endswith(".glb"):
+                        glb_url = sub
+                        break
+
+    return {
+        "status": "success",
+        "space": "stable_fast_3d",
+        "glb_url": glb_url,
+        "raw": str(result),
+    }
+
+
+class Hunyuan3DTextRequest(BaseModel):
+    caption: str
+
+
+@app.post("/hf/hunyuan3d")
+async def hf_hunyuan3d(
+    image: UploadFile = File(None),
+    caption: str = None,
+):
+    """Text OR Image → 3D via Hunyuan3D-2 HuggingFace Space.
+
+    Accepts either:
+      - Image upload (FormData: image file)
+      - Text prompt (FormData: caption field, or JSON body via Hunyuan3DTextRequest)
+
+    Returns GLB/OBJ model file + mesh stats.
+    """
+    from gradio_client import Client, handle_file
+
+    # Determine if we have text or image input
+    has_image = image is not None and image.filename is not None
+    has_text = caption is not None and caption.strip() != ""
+
+    if not has_image and not has_text:
+        return {"error": "Provide either an image upload or a text caption", "space": "hunyuan3d"}
+
+    tmp_path = None
+    if has_image:
+        tmp_path = _save_upload_to_temp(image)
+
+    def _run():
+        client = _hf_client(HF_HUNYUAN3D_URL)
+        image_arg = handle_file(tmp_path) if tmp_path else None
+        result = client.predict(
+            caption or "",               # caption (text prompt)
+            image_arg,                    # image (uploaded image or None)
+            30,                           # steps
+            5.0,                          # guidance_scale
+            1234,                         # seed
+            256,                          # octree_resolution
+            True,                         # check_box_rembg
+            8000,                         # num_chunks
+            True,                         # randomize_seed
+            api_name="/shape_generation",
+        )
+        return result
+
+    try:
+        result = await asyncio.to_thread(_run)
+    except Exception as e:
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+        return {"error": "Space unavailable", "space": "hunyuan3d", "detail": str(e)}
+
+    if tmp_path:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+    # Parse result — Hunyuan3D-2 returns mesh file path(s) + stats
+    glb_url, obj_url, mesh_stats = None, None, None
+    if isinstance(result, str):
+        if result.endswith(".glb"):
+            glb_url = result
+        elif result.endswith(".obj"):
+            obj_url = result
+        else:
+            mesh_stats = result
+    elif isinstance(result, (list, tuple)):
+        for item in result:
+            if isinstance(item, str):
+                if item.endswith(".glb"):
+                    glb_url = item
+                elif item.endswith(".obj"):
+                    obj_url = item
+                else:
+                    mesh_stats = item
+            elif isinstance(item, dict):
+                mesh_stats = item
+
+    return {
+        "status": "success",
+        "space": "hunyuan3d",
+        "glb_url": glb_url,
+        "obj_url": obj_url,
+        "mesh_stats": mesh_stats,
+        "raw": str(result),
+    }
+
+
+@app.get("/hf/status")
+async def hf_status():
+    """Check which HuggingFace Spaces are online."""
+    spaces = {
+        "triposr": HF_TRIPOSR_URL,
+        "stable_fast_3d": HF_STABLE_FAST_3D_URL,
+        "hunyuan3d": HF_HUNYUAN3D_URL,
+    }
+    status = {}
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        for name, url in spaces.items():
+            try:
+                resp = await client.get(url, headers=_hf_headers())
+                if resp.status_code < 500:
+                    status[name] = "online"
+                else:
+                    status[name] = "offline"
+            except Exception:
+                status[name] = "offline"
+    return status
+
+
+# ─── Parametric Modeling ──────────────────────────────────────────
+from scripts.parametric import TEMPLATES as PARAMETRIC_TEMPLATES, generate_parametric
+
+
+@app.get("/parametric/templates")
+async def list_parametric_templates():
+    """List all available parametric templates."""
+    result = []
+    for tid, tmpl in PARAMETRIC_TEMPLATES.items():
+        result.append({
+            "id": tid,
+            "name": tmpl["name"],
+            "category": tmpl["category"],
+            "description": tmpl["description"],
+            "parameters": tmpl["parameters"],
+        })
+    return {"templates": result}
+
+
+@app.post("/parametric/generate")
+async def generate_parametric_model(request: dict):
+    """Generate a 3D model from a parametric template.
+
+    Body: {"template_id": "adjustable_box", "parameters": {"width": 60, "height": 40, ...}}
+    """
+    template_id = request.get("template_id")
+    params = request.get("parameters", {})
+
+    if not template_id or template_id not in PARAMETRIC_TEMPLATES:
+        raise HTTPException(status_code=400, detail=f"Unknown template: {template_id}")
+
+    result = generate_parametric(template_id, params)
+
+    if result.get("error"):
+        raise HTTPException(status_code=500, detail=result["error"])
+
+    return {
+        "status": "success",
+        "template_id": template_id,
+        "template_name": PARAMETRIC_TEMPLATES[template_id]["name"],
+        "scad_code": result.get("scad_code", ""),
+        "image": result.get("image", ""),
+        "stl_path": result.get("stl_path", ""),
+    }
+
+
+@app.get("/parametric/categories")
+async def list_categories():
+    """List all template categories."""
+    cats = {}
+    for tid, tmpl in PARAMETRIC_TEMPLATES.items():
+        cat = tmpl["category"]
+        if cat not in cats:
+            cats[cat] = []
+        cats[cat].append({"id": tid, "name": tmpl["name"]})
+    return {"categories": cats}
