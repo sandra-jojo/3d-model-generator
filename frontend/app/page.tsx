@@ -58,6 +58,7 @@ export default function Home() {
         <a href="/cloud" className="flex-1 py-3 rounded-xl font-semibold bg-gray-800 hover:bg-gray-700 text-center flex items-center justify-center">☁️ Cloud AI</a>
         <a href="/huggingface" className="flex-1 py-3 rounded-xl font-semibold bg-gray-800 hover:bg-gray-700 text-center flex items-center justify-center">🤗 HuggingFace</a>
         <a href="/parametric" className="flex-1 py-3 rounded-xl font-semibold bg-gray-800 hover:bg-gray-700 text-center flex items-center justify-center">📐 Parametric</a>
+        <a href="/studio" className="flex-1 py-3 rounded-xl font-semibold bg-green-700 hover:bg-green-600 text-center flex items-center justify-center">🛠️ Studio</a>
       </div>
 
       <div className="max-w-6xl mx-auto">

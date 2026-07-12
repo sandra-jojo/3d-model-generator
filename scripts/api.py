@@ -1031,3 +1031,684 @@ async def list_categories():
             cats[cat] = []
         cats[cat].append({"id": tid, "name": tmpl["name"]})
     return {"categories": cats}
+
+
+# ─── AI Design Studio ──────────────────────────────────────────────
+# Token-optimized AI agent for interactive 3D design.
+# Constitution Article 4: Prefer local models over paid APIs.
+# Routing: parametric (0 tokens) → mistral (few tokens) → glm4 (more tokens).
+
+import uuid
+import json as _json
+
+# Sliding-window conversation history (per-session, last 3 messages only).
+# Keyed by a client-provided session_id (falls back to "default").
+_studio_conversations: dict[str, list[dict]] = {}
+
+
+def _studio_history(session_id: str, window: int = 3) -> list[dict]:
+    """Return the last `window` messages for a session (sliding window)."""
+    msgs = _studio_conversations.setdefault(session_id, [])
+    return msgs[-window:] if len(msgs) > window else msgs[:]
+
+
+def _studio_append(session_id: str, role: str, content: str, window: int = 6):
+    """Append a message and trim to keep only the last `window` entries."""
+    msgs = _studio_conversations.setdefault(session_id, [])
+    msgs.append({"role": role, "content": content})
+    if len(msgs) > window:
+        _studio_conversations[session_id] = msgs[-window:]
+
+
+# ─── Scene → OpenSCAD conversion ───────────────────────────────────
+
+def object_to_scad(obj: dict, indent: int = 0) -> str:
+    """Convert a single scene object to OpenSCAD code.
+
+    Supports: cube, sphere, cylinder, cone, union, difference.
+    Handles nested children for union/difference.
+    """
+    t = obj.get("type", "cube")
+    p = obj.get("params", {})
+    x = p.get("x", 0)
+    y = p.get("y", 0)
+    z = p.get("z", 0)
+    rot = p.get("rotation", [0, 0, 0])
+    pad = "  " * indent
+    prefix = f"{pad}translate([{x},{y},{z}]) rotate([{rot[0]},{rot[1]},{rot[2]}]) "
+
+    if t == "cube":
+        size = p.get("size", 10)
+        # Allow per-axis dimensions: {"w": .., "d": .., "h": ..}
+        w = p.get("w", size)
+        d = p.get("d", size)
+        h = p.get("h", size)
+        return prefix + f"cube([{w},{d},{h}], center=true);"
+    elif t == "sphere":
+        return prefix + f"sphere(r={p.get('radius', 10)});"
+    elif t == "cylinder":
+        return prefix + f"cylinder(h={p.get('height', 20)}, r={p.get('radius', 5)});"
+    elif t == "cone":
+        return prefix + f"cylinder(h={p.get('height', 20)}, r1={p.get('radius', 10)}, r2=0);"
+    elif t == "union":
+        lines = [f"{pad}union() {{"]
+        for child in obj.get("children", []):
+            lines.append(object_to_scad(child, indent + 1))
+        lines.append(f"{pad}}}")
+        return "\n".join(lines)
+    elif t == "difference":
+        lines = [f"{pad}difference() {{"]
+        for child in obj.get("children", []):
+            lines.append(object_to_scad(child, indent + 1))
+        lines.append(f"{pad}}}")
+        return "\n".join(lines)
+    else:
+        # Unknown type — fallback to cube
+        return prefix + f"cube([{p.get('size', 10)},{p.get('size', 10)},{p.get('size', 10)}], center=true);"
+
+
+def scene_to_scad(scene: dict) -> str:
+    """Convert a full scene (list of objects) to OpenSCAD code."""
+    objects = scene.get("objects", [])
+    if not objects:
+        return "// empty scene"
+    code = ""
+    for obj in objects:
+        code += object_to_scad(obj) + "\n"
+    return code
+
+
+# ─── Parametric detection (0 tokens) ──────────────────────────────
+
+# Pre-compiled regex patterns for common shape commands.
+_RE_ADD_CUBE = re.compile(
+    r"add\s+(?:a\s+)?cube\b.*?(\d+)\s*(?:mm)?\s*(?:x\s*(\d+)\s*(?:mm)?\s*)?(?:x\s*(\d+)\s*(?:mm)?)?",
+    re.IGNORECASE,
+)
+_RE_ADD_SPHERE = re.compile(
+    r"add\s+(?:a\s+)?sphere\b.*?(\d+)\s*(?:mm)?", re.IGNORECASE,
+)
+_RE_ADD_CYLINDER = re.compile(
+    r"add\s+(?:a\s+)?cylinder\b.*?(\d+)\s*(?:mm)?\s*(?:radius|r)\s*(\d+)\s*(?:mm)?.*?(\d+)\s*(?:mm)?\s*(?:tall|height|h)\b",
+    re.IGNORECASE,
+)
+_RE_ADD_CYLINDER_ALT = re.compile(
+    r"add\s+(?:a\s+)?cylinder\b.*?(?:radius|r)\s*(\d+)\s*(?:mm)?.*?(?:height|h|tall)\s*(\d+)\s*(?:mm)?",
+    re.IGNORECASE,
+)
+_RE_DELETE = re.compile(
+    r"(?:delete|remove)\s+(?:object\s+)?([\w-]+)", re.IGNORECASE,
+)
+_RE_MOVE = re.compile(
+    r"move\s+(?:object\s+)?([\w-]+)\s+(?:to\s+)?x\s*[:=]?\s*(-?\d+)\s+y\s*[:=]?\s*(-?\d+)\s+z\s*[:=]?\s*(-?\d+)",
+    re.IGNORECASE,
+)
+_RE_ROTATE = re.compile(
+    r"rotate\s+(?:object\s+)?([\w-]+)\s+(?:by\s+)?(-?\d+)\s*(-?\d+)\s*(-?\d+)",
+    re.IGNORECASE,
+)
+_RE_SCALE = re.compile(
+    r"scale\s+(?:object\s+)?([\w-]+)\s+(?:by\s+)?([\d.]+)", re.IGNORECASE,
+)
+_RE_EXPORT_STL = re.compile(r"export\s+(?:to\s+)?stl", re.IGNORECASE)
+_RE_EXPORT_OBJ = re.compile(r"export\s+(?:to\s+)?obj", re.IGNORECASE)
+
+
+def _new_id() -> str:
+    """Generate a unique object ID."""
+    return f"obj_{uuid.uuid4().hex[:8]}"
+
+
+def parametric_detect(message: str, scene: dict) -> dict | None:
+    """Try to handle a simple command WITHOUT calling the LLM.
+
+    Returns a dict with reply + actions if matched, else None.
+    Token cost: 0.
+    """
+    msg = message.strip()
+
+    # --- Export to STL ---
+    if _RE_EXPORT_STL.search(msg):
+        return {
+            "reply": "Exporting scene to STL.",
+            "actions": [{"type": "export", "format": "stl"}],
+            "model_used": "parametric",
+            "tokens_used": 0,
+        }
+    if _RE_EXPORT_OBJ.search(msg):
+        return {
+            "reply": "Exporting scene to OBJ.",
+            "actions": [{"type": "export", "format": "obj"}],
+            "model_used": "parametric",
+            "tokens_used": 0,
+        }
+
+    # --- Add cube ---
+    m = _RE_ADD_CUBE.search(msg)
+    if m:
+        s1 = int(m.group(1))
+        s2 = int(m.group(2)) if m.group(2) else s1
+        s3 = int(m.group(3)) if m.group(3) else s1
+        obj_id = _new_id()
+        obj = {
+            "id": obj_id,
+            "type": "cube",
+            "params": {"size": s1, "w": s1, "d": s2, "h": s3, "x": 0, "y": 0, "z": 0, "rotation": [0, 0, 0]},
+        }
+        return {
+            "reply": f"Added a cube {s1}×{s2}×{s3}mm.",
+            "actions": [{"type": "add", "object": obj}],
+            "model_used": "parametric",
+            "tokens_used": 0,
+        }
+
+    # --- Add sphere ---
+    m = _RE_ADD_SPHERE.search(msg)
+    if m:
+        r = int(m.group(1))
+        obj_id = _new_id()
+        obj = {
+            "id": obj_id,
+            "type": "sphere",
+            "params": {"radius": r, "x": 0, "y": 0, "z": 0, "rotation": [0, 0, 0]},
+        }
+        return {
+            "reply": f"Added a sphere with radius {r}mm.",
+            "actions": [{"type": "add", "object": obj}],
+            "model_used": "parametric",
+            "tokens_used": 0,
+        }
+
+    # --- Add cylinder (two patterns) ---
+    m = _RE_ADD_CYLINDER.search(msg)
+    if m:
+        h = int(m.group(1))
+        r = int(m.group(2))
+        h2 = int(m.group(3))
+        obj_id = _new_id()
+        obj = {
+            "id": obj_id,
+            "type": "cylinder",
+            "params": {"radius": r, "height": h2, "x": 0, "y": 0, "z": 0, "rotation": [0, 0, 0]},
+        }
+        return {
+            "reply": f"Added a cylinder with radius {r}mm and height {h2}mm.",
+            "actions": [{"type": "add", "object": obj}],
+            "model_used": "parametric",
+            "tokens_used": 0,
+        }
+
+    m = _RE_ADD_CYLINDER_ALT.search(msg)
+    if m:
+        r = int(m.group(1))
+        h = int(m.group(2))
+        obj_id = _new_id()
+        obj = {
+            "id": obj_id,
+            "type": "cylinder",
+            "params": {"radius": r, "height": h, "x": 0, "y": 0, "z": 0, "rotation": [0, 0, 0]},
+        }
+        return {
+            "reply": f"Added a cylinder with radius {r}mm and height {h}mm.",
+            "actions": [{"type": "add", "object": obj}],
+            "model_used": "parametric",
+            "tokens_used": 0,
+        }
+
+    # --- Delete object ---
+    m = _RE_DELETE.search(msg)
+    if m:
+        obj_id = m.group(1)
+        return {
+            "reply": f"Deleted object {obj_id}.",
+            "actions": [{"type": "delete", "id": obj_id}],
+            "model_used": "parametric",
+            "tokens_used": 0,
+        }
+
+    # --- Move object ---
+    m = _RE_MOVE.search(msg)
+    if m:
+        obj_id = m.group(1)
+        x, y, z = int(m.group(2)), int(m.group(3)), int(m.group(4))
+        return {
+            "reply": f"Moved object {obj_id} to ({x}, {y}, {z}).",
+            "actions": [{"type": "move", "id": obj_id, "params": {"x": x, "y": y, "z": z}}],
+            "model_used": "parametric",
+            "tokens_used": 0,
+        }
+
+    # --- Rotate object ---
+    m = _RE_ROTATE.search(msg)
+    if m:
+        obj_id = m.group(1)
+        rx, ry, rz = float(m.group(2)), float(m.group(3)), float(m.group(4))
+        return {
+            "reply": f"Rotated object {obj_id} by ({rx}, {ry}, {rz}).",
+            "actions": [{"type": "rotate", "id": obj_id, "params": {"rotation": [rx, ry, rz]}}],
+            "model_used": "parametric",
+            "tokens_used": 0,
+        }
+
+    # --- Scale object ---
+    m = _RE_SCALE.search(msg)
+    if m:
+        obj_id = m.group(1)
+        factor = float(m.group(2))
+        return {
+            "reply": f"Scaled object {obj_id} by {factor}x.",
+            "actions": [{"type": "scale", "id": obj_id, "factor": factor}],
+            "model_used": "parametric",
+            "tokens_used": 0,
+        }
+
+    return None  # No parametric match — needs LLM
+
+
+# ─── Minimal LLM call (mistral, few tokens) ───────────────────────
+
+def _llm_minimal(message: str, scene: dict) -> dict:
+    """Use mistral for slight interpretation of geometric commands.
+
+    Token cost: low (max_tokens=100).
+    """
+    # Build a compact scene summary (object list only, no code)
+    obj_list = []
+    for obj in scene.get("objects", []):
+        obj_list.append({
+            "id": obj.get("id", ""),
+            "type": obj.get("type", ""),
+            "params": obj.get("params", {}),
+        })
+    scene_json = _json.dumps({"objects": obj_list})
+
+    system_prompt = (
+        "You are a 3D design assistant. Convert the user's message into a JSON action.\n"
+        "Return ONLY a JSON object, no explanation.\n"
+        "Actions: {\"type\":\"add\",\"object\":{\"type\":\"cube|sphere|cylinder|cone\","
+        "\"params\":{\"size\":N,\"radius\":N,\"height\":N,\"x\":N,\"y\":N,\"z\":N,"
+        "\"rotation\":[0,0,0]}}}\n"
+        "Other actions: {\"type\":\"delete|move|rotate|scale\",\"id\":\"obj_id\",...}\n"
+        f"Current scene: {scene_json}\n"
+        f"User message: {message}\n"
+        "JSON:"
+    )
+
+    try:
+        response = ollama_client.chat.completions.create(
+            model="mistral",
+            messages=[{"role": "user", "content": system_prompt}],
+            max_tokens=100,
+            temperature=0.0,
+        )
+        content = response.choices[0].message.content.strip()
+        tokens_used = response.usage.total_tokens if response.usage else 0
+        # Parse the JSON action
+        content = content.strip()
+        if content.startswith("```"):
+            content = re.sub(r"```[a-zA-Z]*", "", content).replace("```", "").strip()
+        action = _json.loads(content)
+        return {
+            "reply": f"Processed: {message}",
+            "actions": [action],
+            "model_used": "mistral",
+            "tokens_used": tokens_used,
+        }
+    except Exception as e:
+        print(f"Studio minimal LLM error: {e}")
+        return {
+            "reply": f"Sorry, I couldn't process that. ({e})",
+            "actions": [],
+            "model_used": "mistral",
+            "tokens_used": 0,
+        }
+
+
+# ─── Full LLM call (glm4, more tokens) ─────────────────────────────
+
+def _llm_full(message: str, scene: dict, history: list[dict]) -> dict:
+    """Use glm4 for complex/creative design requests.
+
+    Token cost: higher (max_tokens=500). Includes scene context (object list only).
+    """
+    obj_list = []
+    for obj in scene.get("objects", []):
+        obj_list.append({
+            "id": obj.get("id", ""),
+            "type": obj.get("type", ""),
+            "params": obj.get("params", {}),
+        })
+    scene_json = _json.dumps({"objects": obj_list})
+
+    system_prompt = (
+        "You are a 3D design assistant. Convert the user's request into scene actions.\n"
+        "Return ONLY a JSON array of action objects. No explanation, no markdown.\n"
+        "Each action: {\"type\":\"add\",\"object\":{\"type\":\"cube|sphere|cylinder|cone|union|difference\","
+        "\"params\":{\"size\":N,\"radius\":N,\"height\":N,\"x\":N,\"y\":N,\"z\":N,"
+        "\"rotation\":[0,0,0]},\"children\":[...]}}\n"
+        "Other actions: {\"type\":\"delete|move|rotate|scale\",\"id\":\"obj_id\",...}\n"
+        f"Current scene objects: {scene_json}\n"
+    )
+
+    messages = [{"role": "system", "content": system_prompt}]
+    # Sliding window: add last 3 conversation messages
+    for msg in history:
+        messages.append({"role": msg.get("role", "user"), "content": msg.get("content", "")})
+    messages.append({"role": "user", "content": message + "\nJSON actions:"})
+
+    try:
+        response = ollama_client.chat.completions.create(
+            model=TEXT_MODEL,
+            messages=messages,
+            max_tokens=500,
+            temperature=0.1,
+        )
+        content = response.choices[0].message.content.strip()
+        tokens_used = response.usage.total_tokens if response.usage else 0
+        # Parse JSON actions
+        if content.startswith("```"):
+            content = re.sub(r"```[a-zA-Z]*", "", content).replace("```", "").strip()
+        actions = _json.loads(content)
+        if isinstance(actions, dict):
+            actions = [actions]
+        return {
+            "reply": f"Processed complex request: {message}",
+            "actions": actions,
+            "model_used": TEXT_MODEL,
+            "tokens_used": tokens_used,
+        }
+    except Exception as e:
+        print(f"Studio full LLM error: {e}")
+        return {
+            "reply": f"Sorry, I couldn't process that. ({e})",
+            "actions": [],
+            "model_used": TEXT_MODEL,
+            "tokens_used": 0,
+        }
+
+
+# ─── Smart routing logic ───────────────────────────────────────────
+
+# Keywords that indicate a complex/creative request needing full LLM.
+_COMPLEX_KEYWORDS = [
+    "design", "create a", "build a", "mechanism", "assembly",
+    "stand", "holder", "mount", "bracket", "case", "enclosure",
+    "gear", "phone stand", "lamp", "articulated", "hinge",
+    "complex", "detailed", "functional", "mechanical",
+]
+
+
+_GEOMETRY_RE = re.compile(
+    r"(?:bigger|smaller|larger|shrink|double|halve|wider|taller|shorter|narrower|thicker|thinner)",
+    re.IGNORECASE,
+)
+
+
+def _route_message(message: str) -> str:
+    """Decide which route to use: 'parametric', 'minimal', or 'full'.
+
+    - parametric: simple add/delete/move/scale/export commands (regex)
+    - minimal: slight geometric interpretation (e.g. "make the box bigger")
+    - full: complex/creative design requests
+    """
+    msg_lower = message.lower()
+    # If any complex keyword is present → full LLM
+    for kw in _COMPLEX_KEYWORDS:
+        if kw in msg_lower:
+            return "full"
+    # If it looks like a simple geometric instruction → minimal LLM
+    # (e.g. "make it bigger", "shrink the cylinder", "double the size")
+    if _GEOMETRY_RE.search(msg_lower):
+        return "minimal"
+    return "full"
+
+
+# ─── Pydantic models ───────────────────────────────────────────────
+
+class StudioChatRequest(BaseModel):
+    message: str
+    scene: dict = {"objects": []}
+    session_id: str = "default"
+    history: list[dict] | None = None  # Optional override of conversation history
+
+
+class StudioExportRequest(BaseModel):
+    scene: dict
+    format: str = "stl"
+
+
+class StudioPreviewRequest(BaseModel):
+    scene: dict
+
+
+# ─── Endpoints ─────────────────────────────────────────────────────
+
+@app.post("/studio/chat")
+async def studio_chat(request: StudioChatRequest):
+    """AI Design Studio chat — token-optimized AI agent.
+
+    Smart routing:
+    1. Parametric detection (0 tokens) — regex pattern matching
+    2. Minimal LLM call (mistral, ~100 tokens) — geometric interpretation
+    3. Full LLM call (glm4, ~500 tokens) — complex/creative requests
+    """
+    message = request.message
+    scene = request.scene if request.scene else {"objects": []}
+    session_id = request.session_id or "default"
+
+    # Get conversation history (sliding window of last 3)
+    history = request.history if request.history else _studio_history(session_id)
+
+    # Step 1: Try parametric detection (0 tokens)
+    result = parametric_detect(message, scene)
+    if result is None:
+        # Step 2: Route to minimal or full LLM
+        route = _route_message(message)
+        if route == "minimal":
+            result = _llm_minimal(message, scene)
+        else:
+            result = _llm_full(message, scene, history)
+
+    # Store in conversation history (sliding window)
+    _studio_append(session_id, "user", message)
+    _studio_append(session_id, "assistant", result.get("reply", ""))
+
+    return result
+
+
+@app.post("/studio/export")
+async def studio_export(request: StudioExportRequest):
+    """Export a scene to STL or OBJ via OpenSCAD.
+
+    Converts scene objects → OpenSCAD code → renders to file.
+    Uses asyncio.to_thread because OpenSCAD subprocess is synchronous.
+    """
+    scene = request.scene if request.scene else {"objects": []}
+    fmt = request.format.lower()
+    if fmt not in ("stl", "obj"):
+        raise HTTPException(status_code=400, detail="format must be 'stl' or 'obj'")
+
+    scad_code = scene_to_scad(scene)
+    name = datetime.now().strftime("%Y%m%d_%H%M%S")
+    base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    scad_path = f"{base}/models/studio_{name}.scad"
+    out_path = f"{base}/outputs/studio_{name}.{fmt}"
+
+    # Write scad file
+    os.makedirs(os.path.dirname(scad_path), exist_ok=True)
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    with open(scad_path, "w") as f:
+        f.write(scad_code)
+
+    # Render via OpenSCAD in a background thread (sync subprocess)
+    def _render():
+        use_xvfb = os.path.exists("/usr/bin/xvfb-run")
+        cmd_prefix = ["xvfb-run", "-a", OPENSCAD_BIN] if use_xvfb else [OPENSCAD_BIN]
+        subprocess.run(
+            cmd_prefix + ["-o", out_path, scad_path],
+            capture_output=True, timeout=60,
+        )
+
+    await asyncio.to_thread(_render)
+
+    if not os.path.exists(out_path):
+        raise HTTPException(status_code=500, detail="Export failed — OpenSCAD did not produce output")
+
+    return {
+        "stl_path": out_path,
+        "scad_code": scad_code,
+        "format": fmt,
+    }
+
+
+@app.post("/studio/preview")
+async def studio_preview(request: StudioPreviewRequest):
+    """Generate a PNG preview image of a scene.
+
+    Converts scene objects → OpenSCAD code → renders PNG.
+    Returns base64-encoded image + scad code.
+    """
+    scene = request.scene if request.scene else {"objects": []}
+    scad_code = scene_to_scad(scene)
+    name = datetime.now().strftime("%Y%m%d_%H%M%S")
+    base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    scad_path = f"{base}/models/studio_{name}.scad"
+    png_path = f"{base}/outputs/studio_{name}.png"
+
+    os.makedirs(os.path.dirname(scad_path), exist_ok=True)
+    os.makedirs(os.path.dirname(png_path), exist_ok=True)
+    with open(scad_path, "w") as f:
+        f.write(scad_code)
+
+    # Render PNG via OpenSCAD in a background thread
+    def _render_png():
+        use_xvfb = os.path.exists("/usr/bin/xvfb-run")
+        cmd_prefix = ["xvfb-run", "-a", OPENSCAD_BIN] if use_xvfb else [OPENSCAD_BIN]
+        subprocess.run(
+            cmd_prefix + ["--imgsize=800,600", "--autocenter", "--viewall", "-o", png_path, scad_path],
+            capture_output=True, timeout=60,
+        )
+
+    await asyncio.to_thread(_render_png)
+
+    if not os.path.exists(png_path):
+        raise HTTPException(status_code=500, detail="Preview render failed")
+
+    # Read the PNG and encode to base64
+    def _read_image():
+        with open(png_path, "rb") as f:
+            return base64.b64encode(f.read()).decode()
+
+    img_base64 = await asyncio.to_thread(_read_image)
+
+    return {
+        "image": img_base64,
+        "scad_code": scad_code,
+    }
+
+
+@app.get("/studio/templates")
+async def studio_templates():
+    """Get pre-made scene templates (starter scenes).
+
+    Returns a dict of template_name → scene object.
+    """
+    templates = {
+        "empty": {
+            "name": "Empty Scene",
+            "description": "A blank canvas to start designing from scratch.",
+            "scene": {"objects": []},
+        },
+        "gear_assembly": {
+            "name": "Gear Assembly",
+            "description": "Three interlocking gears for mechanical demos.",
+            "scene": {
+                "objects": [
+                    {
+                        "id": "gear1",
+                        "type": "cylinder",
+                        "params": {"radius": 15, "height": 5, "x": 0, "y": 0, "z": 0, "rotation": [0, 0, 0]},
+                    },
+                    {
+                        "id": "gear2",
+                        "type": "cylinder",
+                        "params": {"radius": 12, "height": 5, "x": 27, "y": 0, "z": 0, "rotation": [0, 0, 18]},
+                    },
+                    {
+                        "id": "gear3",
+                        "type": "cylinder",
+                        "params": {"radius": 10, "height": 5, "x": 0, "y": 25, "z": 0, "rotation": [0, 0, 12]},
+                    },
+                ]
+            },
+        },
+        "box_with_holes": {
+            "name": "Box with Patterned Holes",
+            "description": "A box with cylindrical holes punched through it.",
+            "scene": {
+                "objects": [
+                    {
+                        "id": "holey_box",
+                        "type": "difference",
+                        "params": {"x": 0, "y": 0, "z": 0, "rotation": [0, 0, 0]},
+                        "children": [
+                            {
+                                "id": "box_body",
+                                "type": "cube",
+                                "params": {"size": 40, "w": 40, "d": 40, "h": 20, "x": 0, "y": 0, "z": 0, "rotation": [0, 0, 0]},
+                            },
+                            {
+                                "id": "hole1",
+                                "type": "cylinder",
+                                "params": {"radius": 3, "height": 25, "x": -10, "y": -10, "z": 0, "rotation": [0, 0, 0]},
+                            },
+                            {
+                                "id": "hole2",
+                                "type": "cylinder",
+                                "params": {"radius": 3, "height": 25, "x": 10, "y": -10, "z": 0, "rotation": [0, 0, 0]},
+                            },
+                            {
+                                "id": "hole3",
+                                "type": "cylinder",
+                                "params": {"radius": 3, "height": 25, "x": -10, "y": 10, "z": 0, "rotation": [0, 0, 0]},
+                            },
+                            {
+                                "id": "hole4",
+                                "type": "cylinder",
+                                "params": {"radius": 3, "height": 25, "x": 10, "y": 10, "z": 0, "rotation": [0, 0, 0]},
+                            },
+                        ],
+                    }
+                ]
+            },
+        },
+        "phone_stand": {
+            "name": "Phone Stand",
+            "description": "A complete phone stand design holding a phone at 15 degrees.",
+            "scene": {
+                "objects": [
+                    {
+                        "id": "base",
+                        "type": "cube",
+                        "params": {"size": 60, "w": 60, "d": 40, "h": 5, "x": 0, "y": 0, "z": 0, "rotation": [0, 0, 0]},
+                    },
+                    {
+                        "id": "back_support",
+                        "type": "cube",
+                        "params": {"size": 50, "w": 50, "d": 5, "h": 40, "x": 0, "y": -15, "z": 20, "rotation": [15, 0, 0]},
+                    },
+                    {
+                        "id": "front_lip",
+                        "type": "cube",
+                        "params": {"size": 50, "w": 50, "d": 5, "h": 8, "x": 0, "y": 15, "z": 4, "rotation": [0, 0, 0]},
+                    },
+                    {
+                        "id": "phone_placeholder",
+                        "type": "cube",
+                        "params": {"size": 8, "w": 8, "d": 16, "h": 1, "x": 0, "y": 0, "z": 25, "rotation": [15, 0, 0]},
+                    },
+                ]
+            },
+        },
+    }
+    return {"templates": templates}
