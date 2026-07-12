@@ -12,7 +12,7 @@ export default function Home() {
   const [mode, setMode] = useState('openscad');
   const [description, setDescription] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
-  const API = 'https://3d-model-generator-production.up.railway.app';
+  const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
   const generate = async () => {
     setLoading(true); setError(''); setImage(''); setCode(''); setStatus('Generating...');
@@ -55,6 +55,7 @@ export default function Home() {
       <div className="max-w-6xl mx-auto flex gap-4 mb-6">
         <button onClick={() => setMode('openscad')} className={`flex-1 py-3 rounded-xl font-semibold ${mode === 'openscad' ? 'bg-blue-600' : 'bg-gray-800'}`}>📐 Text → 3D</button>
         <button onClick={() => setMode('ai')} className={`flex-1 py-3 rounded-xl font-semibold ${mode === 'ai' ? 'bg-purple-600' : 'bg-gray-800'}`}>🧠 Image → 3D</button>
+        <a href="/cloud" className="flex-1 py-3 rounded-xl font-semibold bg-gray-800 hover:bg-gray-700 text-center flex items-center justify-center">☁️ Cloud AI Gen</a>
       </div>
 
       <div className="max-w-6xl mx-auto">
