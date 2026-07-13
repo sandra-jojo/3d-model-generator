@@ -1832,7 +1832,7 @@ async def studio_preview(request: StudioPreviewRequest):
         use_xvfb = os.path.exists("/usr/bin/xvfb-run")
         cmd_prefix = ["xvfb-run", "-a", OPENSCAD_BIN] if use_xvfb else [OPENSCAD_BIN]
         subprocess.run(
-            cmd_prefix + ["--imgsize=800,600", "--autocenter", "--viewall", "-o", png_path, scad_path],
+            cmd_prefix + ["--imgsize=800,600", "--camera=0,0,0,0,0,0,120", "-o", png_path, scad_path],
             capture_output=True, timeout=60,
         )
 
