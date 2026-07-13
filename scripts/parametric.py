@@ -283,14 +283,16 @@ difference() {{
     with open(scad_path, "w") as f:
         f.write(scad_code)
 
-    # Render PNG preview
+    # Render PNG preview (use xvfb-run on headless Linux)
+    use_xvfb = os.path.exists("/usr/bin/xvfb-run")
+    cmd_prefix = ["xvfb-run", "-a", OPENSCAD_BIN] if use_xvfb else [OPENSCAD_BIN]
     subprocess.run(
-        [OPENSCAD_BIN, "--imgsize=800,600", "--camera=0,0,0,0,0,0,120", "-o", png_path, scad_path],
+        cmd_prefix + ["--imgsize=800,600", "--autocenter", "--viewall", "-o", png_path, scad_path],
         capture_output=True, timeout=60,
     )
     # Export STL
     subprocess.run(
-        [OPENSCAD_BIN, "-o", stl_path, scad_path],
+        cmd_prefix + ["-o", stl_path, scad_path],
         capture_output=True, timeout=60,
     )
 
