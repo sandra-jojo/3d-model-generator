@@ -7,11 +7,24 @@ venv/
 # Node / Next.js
 node_modules/
 .next/
+tsconfig.tsbuildinfo
+
+# Vercel local config
+.vercel/
 
 # Generated at runtime (kept out of version control)
 models/*.scad
 models/libraries/
 outputs/*
+!outputs/.gitkeep
 
 # Local backups
 scripts/api_backup.py
+
+# Removed features (no longer needed)
+frontend/app/cloud/
+frontend/app/huggingface/
+frontend/app/hunyuan.ts
+scripts/generate.py
+scripts/mcp_server.py
+docs/
