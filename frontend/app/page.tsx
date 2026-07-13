@@ -65,7 +65,6 @@ export default function Home() {
       <div className="max-w-6xl mx-auto flex flex-wrap gap-4 mb-6">
         <button onClick={() => setMode('openscad')} className={`flex-1 min-w-[120px] py-3 rounded-xl font-semibold ${mode === 'openscad' ? 'bg-blue-600' : 'bg-gray-800'}`}>📐 Text → 3D</button>
         <button onClick={() => setMode('ai')} className={`flex-1 min-w-[120px] py-3 rounded-xl font-semibold ${mode === 'ai' ? 'bg-purple-600' : 'bg-gray-800'}`}>🧠 Image → 3D</button>
-        <Link href="/huggingface" className="flex-1 min-w-[120px] py-3 rounded-xl font-semibold bg-gray-800 hover:bg-gray-700 text-center flex items-center justify-center">🤗 HuggingFace</Link>
         <Link href="/parametric" className="flex-1 min-w-[120px] py-3 rounded-xl font-semibold bg-gray-800 hover:bg-gray-700 text-center flex items-center justify-center">📐 Parametric</Link>
         <Link href="/studio" className="flex-1 min-w-[120px] py-3 rounded-xl font-semibold bg-green-700 hover:bg-green-600 text-center flex items-center justify-center">🛠️ Studio</Link>
       </div>
