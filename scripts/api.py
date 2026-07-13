@@ -139,6 +139,166 @@ SHAPES = {
   translate([-3,0,0]) cylinder(h=5, r=4);
   translate([0,-4,0]) cube([8,6,5]);
 }""",
+    "bridge": """union() {
+  translate([0,0,0]) cube([80,10,5], center=true);
+  translate([0,0,15]) difference() {
+    cylinder(h=20, r=40, $fn=40);
+    cylinder(h=20, r=35, $fn=40);
+  }
+  translate([-35,0,0]) cylinder(h=10, r=3);
+  translate([35,0,0]) cylinder(h=10, r=3);
+}""",
+    "tower": """union() {
+  cylinder(h=50, r=10);
+  translate([0,0,50]) cylinder(h=5, r1=10, r2=14);
+  translate([0,0,55]) cylinder(h=3, r=14);
+  translate([0,0,58]) cylinder(h=15, r1=2, r2=2);
+  translate([0,0,73]) sphere(r=3);
+}""",
+    "windmill": """union() {
+  cylinder(h=40, r=6);
+  translate([0,0,40]) cylinder(h=5, r=8);
+  translate([0,0,45]) rotate([90,0,0]) cylinder(h=30, r=2, center=true);
+  translate([0,0,45]) rotate([0,90,0]) cylinder(h=30, r=2, center=true);
+  translate([0,0,45]) sphere(r=4);
+}""",
+    "guitar": """union() {
+  translate([0,0,0]) cylinder(h=8, r=15);
+  translate([0,0,8]) cylinder(h=8, r=12);
+  translate([0,0,16]) cylinder(h=40, r=3);
+  translate([0,0,56]) cylinder(h=10, r=5);
+}""",
+    "cup": """difference() {
+  union() {
+    cylinder(h=30, r=10);
+    translate([12,0,20]) rotate([0,90,0]) cylinder(h=8, r=3, center=true);
+  }
+  translate([0,0,3]) cylinder(h=28, r=8);
+}""",
+    "donut": """rotate_extrude($fn=50) translate([12,0,0]) circle(r=4, $fn=30);""",
+    "diamond": """union() {
+  cylinder(h=10, r1=12, r2=4);
+  translate([0,0,10]) cylinder(h=10, r1=4, r2=12);
+  translate([0,0,-5]) cylinder(h=5, r1=14, r2=12);
+}""",
+    "hammer": """union() {
+  translate([0,0,0]) cube([5,5,30], center=true);
+  translate([0,0,15]) cube([25,8,8], center=true);
+  translate([10,0,15]) cube([10,12,12], center=true);
+}""",
+    "key": """union() {
+  translate([0,0,0]) cylinder(h=3, r=8, $fn=30);
+  translate([0,0,3]) cylinder(h=3, r=5, $fn=30);
+  translate([0,0,1.5]) cylinder(h=3, r=3, $fn=30);
+  translate([0,0,6]) cube([3,25,3], center=true);
+  translate([0,20,6]) cube([3,3,8]);
+  translate([0,15,6]) cube([3,3,8]);
+}""",
+    "gear": """union() {
+  difference() {
+    union() {
+      cylinder(h=5, r=15, $fn=20);
+      for(i=[0:60:300]) rotate([0,0,i]) translate([17,0,0]) cube([6,5,5], center=true);
+    }
+    cylinder(h=6, r=4, center=true);
+  }
+}""",
+    "lamp": """union() {
+  cylinder(h=30, r=2);
+  translate([0,0,30]) cylinder(h=3, r1=2, r2=10);
+  translate([0,0,33]) cylinder(h=8, r1=10, r2=12);
+  translate([0,0,41]) cylinder(h=1, r=12);
+}""",
+    "fish": """union() {
+  translate([0,0,0]) sphere(r=12);
+  translate([-18,0,0]) rotate([0,0,30]) cube([12,4,10], center=true);
+  translate([-18,0,5]) rotate([0,0,-30]) cube([12,4,10], center=true);
+  translate([10,0,0]) sphere(r=6);
+  translate([14,3,3]) sphere(r=1);
+  translate([14,3,-3]) sphere(r=1);
+}""",
+    "flower": """union() {
+  cylinder(h=30, r=2);
+  translate([0,0,30]) for(i=[0:72:288]) rotate([0,0,i]) translate([8,0,0]) sphere(r=6);
+  translate([0,0,30]) sphere(r=4);
+}""",
+    "wheel": """union() {
+  difference() {
+    cylinder(h=4, r=20, $fn=40);
+    cylinder(h=5, r=4, center=true);
+  }
+  for(i=[0:60:300]) rotate([90,0,i]) translate([0,0,0]) cube([2,18,2], center=true);
+}""",
+    "bolt": """union() {
+  cylinder(h=30, r=5, $fn=6);
+  translate([0,0,30]) cylinder(h=5, r=10, $fn=6);
+}""",
+    "nut": """difference() {
+  cylinder(h=5, r=10, $fn=6);
+  cylinder(h=6, r=4, center=true);
+}""",
+    "stairs": """union() {
+  for(i=[0:5]) translate([0,0,i*5]) cube([30,10,5]);
+  translate([0,-5,0]) cube([30,5,35]);
+}""",
+    "shelf": """union() {
+  cube([40,10,3], center=true);
+  translate([0,0,15]) cube([40,10,3], center=true);
+  translate([0,0,30]) cube([40,10,3], center=true);
+  translate([-18,0,15]) cube([3,10,33]);
+  translate([18,0,15]) cube([3,10,33]);
+}""",
+    "boat": """union() {
+  difference() {
+    cube([50,15,10], center=true);
+    translate([0,0,2]) cube([44,11,10], center=true);
+  }
+  translate([0,0,12]) cube([5,14,15], center=true);
+}""",
+    "rocket2": """union() {
+  cylinder(h=40, r=8);
+  translate([0,0,40]) cylinder(h=10, r1=8, r2=2);
+  translate([8,0,5]) rotate([0,40,0]) cylinder(h=15, r1=3, r2=1);
+  translate([-8,0,5]) rotate([0,-40,0]) cylinder(h=15, r1=3, r2=1);
+  translate([0,8,5]) rotate([40,0,0]) cylinder(h=15, r1=3, r2=1);
+  translate([0,-8,5]) rotate([-40,0,0]) cylinder(h=15, r1=3, r2=1);
+}""",
+    "anchor": """union() {
+  cylinder(h=40, r=2);
+  translate([0,0,40]) cylinder(h=3, r=6, $fn=30);
+  translate([0,0,20]) rotate([90,0,0]) cylinder(h=20, r=3, center=true);
+  translate([0,-10,10]) rotate([0,0,180]) difference() {
+    cylinder(h=4, r=12, $fn=40);
+    cylinder(h=5, r=8, $fn=40);
+  }
+}""",
+    "sword": """union() {
+  translate([0,0,20]) cube([3,3,40], center=true);
+  translate([0,0,0]) cube([10,2,3], center=true);
+  translate([0,0,-3]) cylinder(h=8, r=2);
+  translate([0,0,-11]) sphere(r=3);
+}""",
+    "dog": """union() {
+  translate([0,0,10]) cube([30,15,20], center=true);
+  translate([15,0,5]) cylinder(h=15, r=5);
+  translate([20,0,15]) sphere(r=5);
+  translate([15,5,15]) sphere(r=1);
+  translate([15,-5,15]) sphere(r=1);
+  translate([-12,5,0]) cylinder(h=8, r=3);
+  translate([-12,-5,0]) cylinder(h=8, r=3);
+  translate([10,5,0]) cylinder(h=8, r=3);
+  translate([10,-5,0]) cylinder(h=8, r=3);
+  translate([-15,0,10]) rotate([0,90,0]) cylinder(h=15, r=2, center=true);
+}""",
+    "bird": """union() {
+  translate([0,0,0]) sphere(r=8);
+  translate([-12,0,0]) rotate([0,90,0]) cylinder(h=8, r=3, center=true);
+  translate([8,0,2]) sphere(r=5);
+  translate([11,1,4]) sphere(r=1);
+  translate([-5,8,0]) rotate([0,30,0]) cube([3,15,3], center=true);
+  translate([-5,-8,0]) rotate([0,-30,0]) cube([3,15,3], center=true);
+  translate([0,0,-8]) cylinder(h=8, r=2);
+}""",
 }
 
 def find_shape_in_library(text):

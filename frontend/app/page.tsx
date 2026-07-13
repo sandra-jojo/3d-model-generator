@@ -69,7 +69,7 @@ export default function Home() {
               <h2 className="text-xl font-semibold mb-4">💬 Generate</h2>
               <textarea
                 className="w-full bg-gray-800 rounded-xl p-4 text-white resize-none h-24 mb-4"
-                placeholder="e.g. snowman, chair, house..."
+                placeholder="e.g. snowman, chair, house, bridge, gear, sword, dog, fish, bird, donut, diamond, tower, windmill, guitar, cup, hammer, key, lamp, flower, wheel, bolt, nut, stairs, shelf, boat, anchor, rocket..."
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
               />
