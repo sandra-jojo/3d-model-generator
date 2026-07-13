@@ -398,12 +398,12 @@ def render(scad_code, scad_path, png_path, stl_path):
     use_xvfb = os.path.exists("/usr/bin/xvfb-run")
     cmd_prefix = ["xvfb-run", "-a", OPENSCAD_BIN] if use_xvfb else [OPENSCAD_BIN]
     # Render PNG preview with fixed camera so size changes are visible.
-    # --camera sets eye position, target, and up vector — this keeps the
-    # view consistent regardless of model size, so scaling is visible.
+    # --camera uses translate,rotate,distance format: the model is centered
+    # at origin, viewed from distance 120, so scaling is visually obvious.
     subprocess.run(
         cmd_prefix + [
             "--imgsize=800,600",
-            "--camera=0,0,80, 0,0,0, 0,1,0",
+            "--camera=0,0,0,0,0,0,120",
             "-o", png_path, scad_path,
         ],
         capture_output=True, timeout=60,
