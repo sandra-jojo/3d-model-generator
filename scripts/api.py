@@ -479,6 +479,75 @@ async def generate(request: PromptRequest):
     return {"scad_code": scad_code, "image": img_base64, "status": "success"}
 
 
+def parametric_refine(scad_code: str, instruction: str) -> str:
+    """Refine OpenSCAD code locally without an LLM.
+
+    Parses the instruction for keywords (bigger, smaller, taller, wider,
+    rotate, move) and applies numeric transformations to the code.
+    """
+    instr = instruction.lower().strip()
+    code = scad_code
+
+    # Determine scale factor
+    scale = 1.0
+    if any(w in instr for w in ["bigger", "larger", "huge", "massive", "enormous"]):
+        scale = 1.5
+    elif any(w in instr for w in ["smaller", "tiny", "mini", "shrink"]):
+        scale = 0.7
+    elif any(w in instr for w in ["taller", "higher", "tall"]):
+        # Only scale height-like values
+        code = re.sub(r'(h\s*=\s*)([\d.]+)', lambda m: f'{m.group(1)}{float(m.group(2)) * 1.5:.1f}', code)
+        return code
+    elif any(w in instr for w in ["wider", "wider", "broader"]):
+        code = re.sub(r'(r\s*=\s*)([\d.]+)', lambda m: f'{m.group(1)}{float(m.group(2)) * 1.3:.1f}', code)
+        return code
+    elif any(w in instr for w in ["double", "2x", "twice"]):
+        scale = 2.0
+    elif any(w in instr for w in ["half", "shrink"]):
+        scale = 0.5
+
+    if scale != 1.0:
+        # Scale all numeric values inside function calls
+        # Match patterns like r=20, h=30, r1=15, r2=0, size=40, etc.
+        code = re.sub(r'(r\d?\s*=\s*)([\d.]+)', lambda m: f'{m.group(1)}{float(m.group(2)) * scale:.1f}', code)
+        code = re.sub(r'(h\s*=\s*)([\d.]+)', lambda m: f'{m.group(1)}{float(m.group(2)) * scale:.1f}', code)
+        code = re.sub(r'(size\s*=\s*)([\d.]+)', lambda m: f'{m.group(1)}{float(m.group(2)) * scale:.1f}', code)
+
+        # Scale numbers inside translate([x,y,z]) and cube([w,d,h])
+        def scale_array(match):
+            nums = match.group(1).split(",")
+            scaled = [str(round(float(n.strip()) * scale, 1)) for n in nums]
+            return f"[{', '.join(scaled)}]"
+
+        code = re.sub(r'translate\(\[([0-9.,\s\-]+)\]', lambda m: f'translate([{scale_array(m)}'.replace("[[", "[").replace("]]", "]"), code)
+        code = re.sub(r'cube\(\[([0-9.,\s\-]+)\]', lambda m: f'cube([{scale_array(m)}'.replace("[[", "[").replace("]]", "]"), code)
+
+    # Handle rotation
+    if "rotate" in instr or "turn" in instr or "flip" in instr:
+        axis = "[0,0,1]"
+        if "x axis" in instr or "x-axis" in instr:
+            axis = "[1,0,0]"
+        elif "y axis" in instr or "y-axis" in instr:
+            axis = "[0,1,0]"
+        code = f"rotate({axis}) {{\n{code}\n}}"
+
+    # Handle move/translate
+    if any(w in instr for w in ["move", "shift", "offset"]):
+        # Try to extract direction
+        if "up" in instr or "above" in instr:
+            code = f"translate([0,0,10]) {{\n{code}\n}}"
+        elif "down" in instr or "below" in instr:
+            code = f"translate([0,0,-10]) {{\n{code}\n}}"
+        elif "left" in instr:
+            code = f"translate([-10,0,0]) {{\n{code}\n}}"
+        elif "right" in instr:
+            code = f"translate([10,0,0]) {{\n{code}\n}}"
+        else:
+            code = f"translate([5,5,5]) {{\n{code}\n}}"
+
+    return code
+
+
 @app.post("/refine")
 async def refine(request: RefineRequest):
     name = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -487,6 +556,7 @@ async def refine(request: RefineRequest):
     png_path = f"{base}/outputs/{name}.png"
     stl_path = f"{base}/outputs/{name}.stl"
 
+    # Try LLM-based refinement first
     system_prompt = f"""You are an OpenSCAD code modifier.
 CURRENT CODE:
 {request.previous_scad}
@@ -504,6 +574,10 @@ MODIFIED CODE:"""
 
     code = ollama_generate(system_prompt)
     code = sanitize_scad(code)
+
+    # If LLM returned nothing usable, do parametric refinement locally
+    if not code.strip() or code.strip() == FALLBACK_SCAD.strip():
+        code = parametric_refine(request.previous_scad, request.instruction)
 
     if not code.strip():
         code = request.previous_scad
