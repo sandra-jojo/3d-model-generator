@@ -20,59 +20,72 @@ export default function ModelViewer({ stlUrl }: ModelViewerProps) {
     const container = containerRef.current;
     if (!container) return;
 
-    const w = container.clientWidth || 600;
-    const h = container.clientHeight || 500;
+    // Wait a tick for the container to have proper dimensions
+    const initTimer = setTimeout(() => {
+      initScene();
+    }, 50);
 
-    // Scene
-    const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0f172a);
+    function initScene() {
+      const w = container!.clientWidth || 600;
+      const h = container!.clientHeight || 500;
 
-    // Camera
-    const camera = new THREE.PerspectiveCamera(50, w / h, 0.1, 10000);
-    camera.position.set(100, 80, 140);
-    cameraRef.current = camera;
+      // Scene
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x0f172a);
+
+      // Camera — positioned at an angle so we see the model from front-top-right
+      const camera = new THREE.PerspectiveCamera(50, w / h, 0.1, 10000);
+      camera.position.set(150, 120, 150);
+      camera.up.set(0, 0, 1); // OpenSCAD uses Z-up, so tell Three.js Z is up
+      cameraRef.current = camera;
 
     // Renderer
-    const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(w, h);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    container.appendChild(renderer.domElement);
-    renderer.domElement.style.width = '100%';
-    renderer.domElement.style.height = '100%';
+    renderer.domElement.style.display = 'block';
+    renderer.domElement.style.touchAction = 'none'; // Required for OrbitControls
+    container!.appendChild(renderer.domElement);
 
     // Lights
-    scene.add(new THREE.AmbientLight(0x8899aa, 0.5));
+    scene.add(new THREE.AmbientLight(0x9099aa, 0.6));
     const dl1 = new THREE.DirectionalLight(0xffffff, 1.0);
-    dl1.position.set(120, 120, 100);
+    dl1.position.set(150, 150, 200);
     scene.add(dl1);
-    const dl2 = new THREE.DirectionalLight(0x3b82f6, 0.5);
-    dl2.position.set(-100, 40, -80);
+    const dl2 = new THREE.DirectionalLight(0x60a5fa, 0.5);
+    dl2.position.set(-120, 60, 100);
     scene.add(dl2);
     const dl3 = new THREE.DirectionalLight(0xf59e0b, 0.3);
-    dl3.position.set(0, -100, 50);
+    dl3.position.set(0, -150, 50);
     scene.add(dl3);
 
-    // Controls
+    // Controls — orbit, zoom, pan
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.1;
     controls.minDistance = 30;
-    controls.maxDistance = 600;
+    controls.maxDistance = 800;
     controls.enablePan = true;
     controls.enableZoom = true;
     controls.enableRotate = true;
     controls.autoRotateSpeed = 3.0;
+    controls.mouseButtons = {
+      LEFT: THREE.MOUSE.ROTATE,
+      MIDDLE: THREE.MOUSE.DOLLY,
+      RIGHT: THREE.MOUSE.PAN,
+    };
     controlsRef.current = controls;
 
-    // Grid + axes
+    // Grid on the XY plane (since Z is up)
     const grid = new THREE.GridHelper(300, 30, 0x4b5563, 0x1e293b);
-    grid.position.y = -60;
+    grid.rotation.x = Math.PI / 2; // Lay grid flat (XY plane)
+    grid.position.z = -80;
     scene.add(grid);
-    scene.add(new THREE.AxesHelper(80));
 
     // Load STL
     const loader = new STLLoader();
     let mesh: THREE.Mesh | null = null;
+    let frameId: number;
     setLoaded(false);
     setLoadError(false);
 
@@ -88,19 +101,21 @@ export default function ModelViewer({ stlUrl }: ModelViewerProps) {
         const scale = 120 / maxDim;
 
         const material = new THREE.MeshStandardMaterial({
-          color: 0x3b82f6,
-          metalness: 0.3,
-          roughness: 0.35,
+          color: 0x60a5fa,
+          metalness: 0.2,
+          roughness: 0.4,
           flatShading: false,
         });
         mesh = new THREE.Mesh(geometry, material);
         mesh.scale.setScalar(scale);
+        // Center the model at origin
         mesh.position.sub(center.multiplyScalar(scale));
-        mesh.position.y -= 20;
         scene.add(mesh);
         setLoaded(true);
 
-        camera.position.set(100, 80, 140);
+        // Position camera to view the model from front-right-top
+        camera.position.set(150, -150, 100);
+        camera.up.set(0, 0, 1);
         controls.target.set(0, 0, 0);
         controls.update();
       },
@@ -109,7 +124,6 @@ export default function ModelViewer({ stlUrl }: ModelViewerProps) {
     );
 
     // Animation loop
-    let frameId: number;
     const animate = () => {
       frameId = requestAnimationFrame(animate);
       controls.update();
@@ -117,15 +131,15 @@ export default function ModelViewer({ stlUrl }: ModelViewerProps) {
     };
     animate();
 
-    // Resize handler — use ResizeObserver for reliable sizing
+    // Resize handler
     const ro = new ResizeObserver(() => {
-      const nw = container.clientWidth || 600;
-      const nh = container.clientHeight || 500;
+      const nw = container!.clientWidth || 600;
+      const nh = container!.clientHeight || 500;
       camera.aspect = nw / nh;
       camera.updateProjectionMatrix();
       renderer.setSize(nw, nh);
     });
-    ro.observe(container);
+    ro.observe(container!);
 
     // Cleanup
     return () => {
@@ -137,9 +151,14 @@ export default function ModelViewer({ stlUrl }: ModelViewerProps) {
         mesh.geometry.dispose();
         (mesh.material as THREE.Material).dispose();
       }
-      if (container.contains(renderer.domElement)) {
-        container.removeChild(renderer.domElement);
+      if (container!.contains(renderer.domElement)) {
+        container!.removeChild(renderer.domElement);
       }
+    };
+    }
+
+    return () => {
+      clearTimeout(initTimer);
     };
   }, [stlUrl]);
 
@@ -150,30 +169,38 @@ export default function ModelViewer({ stlUrl }: ModelViewerProps) {
     }
   }, [autoRotate]);
 
-  // Zoom buttons
+  // Zoom buttons — move camera closer/farther along its viewing direction
   const zoomIn = () => {
     if (cameraRef.current && controlsRef.current) {
-      const dir = new THREE.Vector3();
-      cameraRef.current.getWorldDirection(dir);
-      cameraRef.current.position.addScaledVector(dir, 30);
+      const cam = cameraRef.current;
+      const target = controlsRef.current.target;
+      const dir = new THREE.Vector3().subVectors(cam.position, target).normalize();
+      const dist = cam.position.distanceTo(target);
+      const newDist = Math.max(dist - 40, controlsRef.current.minDistance);
+      cam.position.copy(target).addScaledVector(dir, newDist);
       controlsRef.current.update();
     }
   };
   const zoomOut = () => {
     if (cameraRef.current && controlsRef.current) {
-      const dir = new THREE.Vector3();
-      cameraRef.current.getWorldDirection(dir);
-      cameraRef.current.position.addScaledVector(dir, -30);
+      const cam = cameraRef.current;
+      const target = controlsRef.current.target;
+      const dir = new THREE.Vector3().subVectors(cam.position, target).normalize();
+      const dist = cam.position.distanceTo(target);
+      const newDist = Math.min(dist + 40, controlsRef.current.maxDistance);
+      cam.position.copy(target).addScaledVector(dir, newDist);
       controlsRef.current.update();
     }
   };
 
   return (
-    <div className="relative w-full h-full">
-      <div ref={containerRef} className="w-full h-full" style={{ minHeight: '500px' }} />
-      {/* Loading / error overlay */}
+    <div className="relative w-full h-full" style={{ minHeight: '500px' }}>
+      {/* Canvas container — must be behind overlays */}
+      <div ref={containerRef} className="absolute inset-0" style={{ touchAction: 'none' }} />
+
+      {/* Loading overlay — pointer-events-none so mouse goes through to canvas */}
       {!loaded && !loadError && (
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+        <div className="absolute inset-0 flex items-center justify-center" style={{ pointerEvents: 'none' }}>
           <div className="text-center">
             <p className="text-4xl mb-2 animate-pulse">⚙️</p>
             <p className="text-gray-400 text-sm">Loading 3D model...</p>
@@ -181,21 +208,22 @@ export default function ModelViewer({ stlUrl }: ModelViewerProps) {
         </div>
       )}
       {loadError && (
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+        <div className="absolute inset-0 flex items-center justify-center" style={{ pointerEvents: 'none' }}>
           <p className="text-red-400 text-sm">Failed to load STL. Try regenerating.</p>
         </div>
       )}
-      {/* Control buttons */}
+
+      {/* Control buttons — pointer-events auto so they're clickable */}
       {loaded && (
-        <div className="absolute bottom-3 right-3 flex flex-col gap-2">
-          <button onClick={() => setAutoRotate(!autoRotate)} className={`w-10 h-10 rounded-lg text-lg flex items-center justify-center transition ${autoRotate ? 'bg-blue-600' : 'bg-gray-800 hover:bg-gray-700'}`} title="Auto-rotate">
+        <div className="absolute bottom-3 right-3 flex flex-col gap-2" style={{ zIndex: 10 }}>
+          <button onClick={() => setAutoRotate(!autoRotate)} className={`w-10 h-10 rounded-lg text-lg flex items-center justify-center transition cursor-pointer ${autoRotate ? 'bg-blue-600' : 'bg-gray-800 hover:bg-gray-700'}`} title="Auto-rotate">
             🔄
           </button>
-          <button onClick={zoomIn} className="w-10 h-10 rounded-lg bg-gray-800 hover:bg-gray-700 text-lg flex items-center justify-center" title="Zoom in">
-            🔍➕
+          <button onClick={zoomIn} className="w-10 h-10 rounded-lg bg-gray-800 hover:bg-gray-700 text-lg flex items-center justify-center cursor-pointer" title="Zoom in">
+            🔍+
           </button>
-          <button onClick={zoomOut} className="w-10 h-10 rounded-lg bg-gray-800 hover:bg-gray-700 text-lg flex items-center justify-center" title="Zoom out">
-            🔍➖
+          <button onClick={zoomOut} className="w-10 h-10 rounded-lg bg-gray-800 hover:bg-gray-700 text-lg flex items-center justify-center cursor-pointer" title="Zoom out">
+            🔍−
           </button>
         </div>
       )}
