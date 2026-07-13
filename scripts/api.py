@@ -1140,7 +1140,10 @@ async def hf_status():
 
 
 # ─── Parametric Modeling ──────────────────────────────────────────
-from scripts.parametric import TEMPLATES as PARAMETRIC_TEMPLATES, generate_parametric
+try:
+    from scripts.parametric import TEMPLATES as PARAMETRIC_TEMPLATES, generate_parametric
+except ModuleNotFoundError:
+    from parametric import TEMPLATES as PARAMETRIC_TEMPLATES, generate_parametric
 
 
 @app.get("/parametric/templates")
