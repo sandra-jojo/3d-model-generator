@@ -298,6 +298,10 @@ async def root():
         "openscad": OPENSCAD_BIN,
     }
 
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
 
 @app.post("/generate")
 async def generate(request: PromptRequest):
