@@ -1,5 +1,6 @@
 'use client';
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect } from 'react';
+import Link from 'next/link';
 
 interface SceneObject {
   id: string;
@@ -30,11 +31,11 @@ export default function StudioPage() {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [preview, setPreview] = useState('');
-  const [scadCode, setScadCode] = useState('');
   const [selectedObj, setSelectedObj] = useState<string | null>(null);
   const [tokenStats, setTokenStats] = useState({ total: 0, parametric: 0, llm: 0 });
   const [error, setError] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const objIdCounter = useRef(0);
   const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
   useEffect(() => {
@@ -109,15 +110,8 @@ export default function StudioPage() {
     setLoading(false);
   };
 
-  // Auto-preview when scene changes
-  useEffect(() => {
-    if (scene.objects.length === 0) { setPreview(''); return; }
-    const timer = setTimeout(() => generatePreview(), 500);
-    return () => clearTimeout(timer);
-  }, [scene]);
-
   const generatePreview = async () => {
-    if (scene.objects.length === 0) return;
+    if (scene.objects.length === 0) { setPreview(''); return; }
     try {
       const res = await fetch(`${API}/studio/preview`, {
         method: 'POST',
@@ -127,10 +121,17 @@ export default function StudioPage() {
       const data = await res.json();
       if (data.image) {
         setPreview('data:image/png;base64,' + data.image);
-        setScadCode(data.scad_code || '');
       }
-    } catch (e) { /* silent fail for preview */ }
+    } catch {
+      /* silent fail for preview */
+    }
   };
+
+  // Auto-preview when scene changes
+  useEffect(() => {
+    const timer = setTimeout(() => generatePreview(), 500);
+    return () => clearTimeout(timer);
+  }, [scene]);
 
   const exportSTL = async () => {
     try {
@@ -143,8 +144,8 @@ export default function StudioPage() {
       if (data.stl_path) {
         window.open(`${API}/download/stl`, '_blank');
       }
-    } catch (e) {
-      setError('Export failed: ' + (e instanceof Error ? e.message : String(e)));
+    } catch (err) {
+      setError('Export failed: ' + (err instanceof Error ? err.message : String(err)));
     }
   };
 
@@ -157,12 +158,12 @@ export default function StudioPage() {
         setScene(template);
         setMessages(prev => [...prev, { role: 'assistant', content: `Loaded template: ${name}`, model: 'system', tokens: 0 }]);
       }
-    } catch (e) { /* silent */ }
+    } catch { /* silent */ }
   };
 
   const addPrimitive = (type: SceneObject['type']) => {
-    const id = `obj_${Date.now()}`;
-    const defaults: Record<string, any> = {
+    const id = `obj_${++objIdCounter.current}`;
+    const defaults: Record<string, SceneObject['params']> = {
       cube: { size: 20, x: 0, y: 0, z: 0 },
       sphere: { radius: 15, x: 0, y: 0, z: 0 },
       cylinder: { radius: 10, height: 30, x: 0, y: 0, z: 0 },
@@ -182,7 +183,6 @@ export default function StudioPage() {
   const clearScene = () => {
     setScene({ objects: [] });
     setPreview('');
-    setScadCode('');
   };
 
   const updateParam = (id: string, key: string, value: number) => {
@@ -208,7 +208,7 @@ export default function StudioPage() {
             <span className="bg-gray-800 px-3 py-1 rounded-lg">
               🧠 LLM calls: <span className="text-orange-400">{tokenStats.llm}</span>
             </span>
-            <a href="/" className="text-blue-400 hover:text-blue-300">← Home</a>
+            <Link href="/" className="text-blue-400 hover:text-blue-300">← Home</Link>
           </div>
         </div>
 
@@ -328,7 +328,7 @@ export default function StudioPage() {
                   <p className="mb-3">Try saying:</p>
                   <div className="space-y-2">
                     {['Add a cube 30mm', 'Add a sphere 20mm radius', 'Create a cylinder 50mm tall', 'Design a phone stand', 'Make everything bigger'].map(s => (
-                      <button key={s} onClick={() => setInput(s)} className="block w-full text-left bg-gray-800 hover:bg-gray-700 rounded-lg p-2 text-xs text-gray-300">"{s}"</button>
+                      <button key={s} onClick={() => setInput(s)} className="block w-full text-left bg-gray-800 hover:bg-gray-700 rounded-lg p-2 text-xs text-gray-300">&quot;{s}&quot;</button>
                     ))}
                   </div>
                 </div>

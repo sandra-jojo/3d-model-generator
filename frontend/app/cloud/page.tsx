@@ -1,5 +1,6 @@
 'use client';
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef } from 'react';
+import Link from 'next/link';
 
 type Provider = 'meshy' | 'tripo';
 type GenMode = 'text' | 'image';
@@ -35,12 +36,13 @@ export default function CloudGenerate() {
         ? `${API}/${isText ? 'meshy/text-to-3d' : 'meshy/image-to-3d'}`
         : `${API}/${isText ? 'tripo/text-to-model' : 'tripo/image-to-model'}`;
 
-      const body: any = {};
+      const body: Record<string, string> = {};
+      const imageFile = !isText ? fileRef.current?.files?.[0] : undefined;
       if (isText) {
         body.prompt = prompt;
         if (negativePrompt) body.negative_prompt = negativePrompt;
       } else {
-        if (!fileRef.current?.files?.[0]) {
+        if (!imageFile) {
           setError('Please upload an image!');
           setLoading(false);
           return;
@@ -49,7 +51,7 @@ export default function CloudGenerate() {
 
       const res = isText
         ? await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-        : await fetch(endpoint, { method: 'POST', body: await createFormData(fileRef.current.files[0]) });
+        : await fetch(endpoint, { method: 'POST', body: await createFormData(imageFile) });
 
       const data = await res.json();
 
@@ -126,9 +128,9 @@ export default function CloudGenerate() {
     }, 5000);
   };
 
-  const createFormData = async (file: File) => {
+  const createFormData = async (file: File | undefined) => {
     const formData = new FormData();
-    formData.append('file', file);
+    if (file) formData.append('file', file);
     return formData;
   };
 
@@ -140,7 +142,7 @@ export default function CloudGenerate() {
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <h1 className="text-3xl font-bold">☁️ AI Cloud 3D Generation</h1>
-          <a href="/" className="text-blue-400 hover:text-blue-300 text-sm">← Back to Local Gen</a>
+          <Link href="/" className="text-blue-400 hover:text-blue-300 text-sm">← Back to Local Gen</Link>
         </div>
 
         {/* Provider Selection */}
@@ -305,7 +307,6 @@ export default function CloudGenerate() {
                       camera-controls
                       style={{ width: '100%', height: '300px' }}
                     />
-                    <script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js" />
                   </div>
                 )}
               </div>

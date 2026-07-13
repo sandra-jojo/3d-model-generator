@@ -1,5 +1,6 @@
 'use client';
 import { useState, useRef, useEffect } from 'react';
+import Link from 'next/link';
 
 type HFProvider = 'triposr' | 'stable-fast-3d' | 'hunyuan3d';
 
@@ -8,7 +9,7 @@ interface HFResult {
   space: string;
   obj_url?: string | null;
   glb_url?: string | null;
-  mesh_stats?: any;
+  mesh_stats?: Record<string, unknown> | string;
   error?: string;
   detail?: string;
   raw?: string;
@@ -64,23 +65,23 @@ export default function HuggingFacePage() {
   const [error, setError] = useState('');
   const [result, setResult] = useState<HFResult | null>(null);
   const [spaceStatus, setSpaceStatus] = useState<Record<string, string>>({});
+  const [hasFile, setHasFile] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
   // Check space status on mount
   useEffect(() => {
+    const checkStatus = async () => {
+      try {
+        const res = await fetch(`${API}/hf/status`);
+        const data = await res.json();
+        setSpaceStatus(data);
+      } catch {
+        // ignore — status will show as unknown
+      }
+    };
     checkStatus();
-  }, []);
-
-  const checkStatus = async () => {
-    try {
-      const res = await fetch(`${API}/hf/status`);
-      const data = await res.json();
-      setSpaceStatus(data);
-    } catch {
-      // ignore — status will show as unknown
-    }
-  };
+  }, [API]);
 
   const generate = async () => {
     const prov = PROVIDERS[provider];
@@ -136,7 +137,7 @@ export default function HuggingFacePage() {
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <h1 className="text-3xl font-bold">🤗 HuggingFace Spaces 3D Generation</h1>
-          <a href="/" className="text-blue-400 hover:text-blue-300 text-sm">← Back to Local Gen</a>
+          <Link href="/" className="text-blue-400 hover:text-blue-300 text-sm">← Back to Local Gen</Link>
         </div>
 
         {/* Provider Cards */}
@@ -148,7 +149,7 @@ export default function HuggingFacePage() {
             return (
               <button
                 key={key}
-                onClick={() => { setProvider(key); setResult(null); setError(''); }}
+                onClick={() => { setProvider(key); setResult(null); setError(''); setHasFile(false); }}
                 className={`text-left p-5 rounded-2xl transition border-2 ${
                   provider === key
                     ? 'border-blue-500 bg-gray-900'
@@ -186,6 +187,7 @@ export default function HuggingFacePage() {
               ref={fileRef}
               type="file"
               accept="image/*"
+              onChange={(e) => setHasFile(!!e.target.files?.[0])}
               className="w-full bg-gray-800 rounded-xl p-4 text-white mb-4"
             />
 
@@ -204,7 +206,7 @@ export default function HuggingFacePage() {
 
             <button
               onClick={generate}
-              disabled={loading || (prov.inputType === 'Image only' && !fileRef.current?.files?.[0])}
+              disabled={loading || (prov.inputType === 'Image only' && !hasFile)}
               className={`w-full rounded-xl py-3 font-semibold transition disabled:bg-gray-600 ${prov.color}`}
             >
               {loading ? `⏳ ${status}` : `🚀 Generate with ${prov.name}`}
@@ -246,7 +248,6 @@ export default function HuggingFacePage() {
                 {result.glb_url && (
                   <div className="mb-4 bg-gray-800 rounded-xl p-4">
                     <p className="text-gray-400 text-sm mb-2">3D Preview (GLB):</p>
-                  {/* @ts-expect-error model-viewer is a custom element */}
                     <model-viewer
                       src={result.glb_url}
                       alt="3D model"
@@ -254,7 +255,6 @@ export default function HuggingFacePage() {
                       camera-controls
                       style={{ width: '100%', height: '300px' }}
                     />
-                    <script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js" />
                   </div>
                 )}
 

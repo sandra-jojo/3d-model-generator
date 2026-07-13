@@ -1,5 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 
 interface TemplateParam {
   name: string;
@@ -78,7 +79,7 @@ export default function ParametricPage() {
       <div className="max-w-7xl mx-auto">
         <div className="flex items-center justify-between mb-8">
           <h1 className="text-3xl font-bold">📐 Parametric Modeling</h1>
-          <a href="/" className="text-blue-400 hover:text-blue-300 text-sm">← Back to Home</a>
+          <Link href="/" className="text-blue-400 hover:text-blue-300 text-sm">← Back to Home</Link>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
