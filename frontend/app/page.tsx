@@ -24,9 +24,10 @@ export default function Home() {
     setLoading(true); setError(''); setImage(''); setCode(''); setStlUrl(''); setStatus('Generating...');
     try {
       const res = await fetch(`${API}/generate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt }) });
-      const data = await res.json();
+      let data;
+      try { data = await res.json(); } catch { setError(`Server error (${res.status})`); setLoading(false); return; }
       if (data.image) { setImage('data:image/png;base64,' + data.image); setCode(data.scad_code || ''); setStlUrl(`${API}/download/stl?t=${Date.now()}`); setStatus(''); }
-      else setError('Render failed!');
+      else setError(data.error || data.detail || 'Render failed!');
     } catch (e) { setError('Error: ' + (e instanceof Error ? e.message : String(e))); }
     setLoading(false);
   };
@@ -35,8 +36,10 @@ export default function Home() {
     setLoading(true); setError(''); setStatus('Refining...');
     try {
       const res = await fetch(`${API}/refine`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ previous_scad: code || prompt, instruction: refineText }) });
-      const data = await res.json();
+      let data;
+      try { data = await res.json(); } catch { setError(`Server error (${res.status})`); setLoading(false); return; }
       if (data.image) { setImage('data:image/png;base64,' + data.image); if (data.scad_code) setCode(data.scad_code); setStlUrl(`${API}/download/stl?t=${Date.now()}`); setRefineText(''); setStatus('Refined!'); }
+      else setError(data.error || data.detail || 'Refine failed!');
     } catch (e) { setError('Error: ' + (e instanceof Error ? e.message : String(e))); }
     setLoading(false);
   };
@@ -48,9 +51,10 @@ export default function Home() {
       const formData = new FormData();
       formData.append('file', fileRef.current.files[0]);
       const res = await fetch(`${API}/generate_from_image`, { method: 'POST', body: formData });
-      const data = await res.json();
+      let data;
+      try { data = await res.json(); } catch { setError(`Server error (${res.status})`); setLoading(false); return; }
       if (data.image) { setImage('data:image/png;base64,' + data.image); setCode(data.scad_code || ''); setDescription(data.description || ''); setStlUrl(`${API}/download/stl?t=${Date.now()}`); setStatus('3D Model Generated!'); }
-      else setError('Failed: ' + JSON.stringify(data));
+      else setError(data.error || data.detail || 'Failed: ' + JSON.stringify(data));
     } catch (e) { setError('Error: ' + (e instanceof Error ? e.message : String(e))); }
     setLoading(false);
   };

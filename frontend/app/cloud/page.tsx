@@ -53,10 +53,17 @@ export default function CloudGenerate() {
         ? await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
         : await fetch(endpoint, { method: 'POST', body: await createFormData(imageFile) });
 
-      const data = await res.json();
+      let data;
+      try {
+        data = await res.json();
+      } catch {
+        setError(`Server error (${res.status}). The API may be unavailable.`);
+        setLoading(false);
+        return;
+      }
 
-      if (data.error) {
-        setError(data.error);
+      if (!res.ok || data.error) {
+        setError(data.error || data.detail || `Server error (${res.status})`);
         setLoading(false);
         return;
       }
@@ -93,7 +100,19 @@ export default function CloudGenerate() {
       attempts++;
       try {
         const res = await fetch(pollEndpoint);
-        const data = await res.json();
+        let data;
+        try {
+          data = await res.json();
+        } catch {
+          if (attempts >= maxAttempts) {
+            setError('Polling failed: invalid server response');
+            setPolling(false);
+            clearInterval(interval);
+          }
+          return;
+        }
+
+        if (!data) return;
 
         setProgress(data.progress || 0);
         setStatus(`${data.status || 'processing'}... ${data.progress || 0}%`);

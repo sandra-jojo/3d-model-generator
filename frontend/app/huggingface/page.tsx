@@ -114,10 +114,17 @@ export default function HuggingFacePage() {
         method: 'POST',
         body: formData,
       });
-      const data = await res.json();
+      let data;
+      try {
+        data = await res.json();
+      } catch {
+        setError(`Server error (${res.status}). The API may be unavailable.`);
+        setLoading(false);
+        return;
+      }
 
-      if (data.error) {
-        setError(`${data.error}${data.detail ? ': ' + data.detail : ''}`);
+      if (!res.ok || data.error) {
+        setError(data.error ? `${data.error}${data.detail ? ': ' + data.detail : ''}` : `Server error (${res.status})`);
       } else {
         setResult(data);
         setStatus('Done!');
