@@ -700,9 +700,19 @@ async def download_stl():
         # Also check Docker path
         files = glob.glob("/app/outputs/*.stl")
     if not files:
-        return {"error": "No STL file found"}
+        raise HTTPException(status_code=404, detail="No STL file found")
     latest = max(files, key=os.path.getctime)
-    return FileResponse(latest, filename="model.stl", media_type="application/octet-stream")
+    from fastapi.responses import Response
+    with open(latest, "rb") as f:
+        stl_data = f.read()
+    return Response(
+        content=stl_data,
+        media_type="application/octet-stream",
+        headers={
+            "Content-Disposition": 'attachment; filename="model.stl"',
+            "Access-Control-Allow-Origin": "*",
+        },
+    )
 
 
 # ─── Meshy API Integration ──────────────────────────────────────────
