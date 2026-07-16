@@ -4,6 +4,7 @@ import Link from 'next/link';
 import dynamic from 'next/dynamic';
 
 const ModelViewer = dynamic(() => import('@/components/ModelViewer'), { ssr: false });
+const GlbViewer = dynamic(() => import('@/components/GlbViewer'), { ssr: false });
 
 export default function Home() {
   const [prompt, setPrompt] = useState('');
@@ -16,12 +17,14 @@ export default function Home() {
   const [mode, setMode] = useState('openscad');
   const [description, setDescription] = useState('');
   const [stlUrl, setStlUrl] = useState('');
+  const [glbUrl, setGlbUrl] = useState('');
   const [view3D, setView3D] = useState(true);
+  const [imageMode, setImageMode] = useState<'quick' | 'ai'>('quick');
   const fileRef = useRef<HTMLInputElement>(null);
   const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
   const generate = async () => {
-    setLoading(true); setError(''); setImage(''); setCode(''); setStlUrl(''); setStatus('Generating...');
+    setLoading(true); setError(''); setImage(''); setCode(''); setStlUrl(''); setGlbUrl(''); setStatus('Generating...');
     try {
       const res = await fetch(`${API}/generate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt }) });
       let data;
@@ -46,7 +49,7 @@ export default function Home() {
 
   const generateFromImage = async () => {
     if (!fileRef.current?.files?.[0]) { setError('Please upload an image!'); return; }
-    setLoading(true); setError(''); setImage(''); setCode(''); setDescription(''); setStlUrl(''); setStatus('LLM analyzing image...');
+    setLoading(true); setError(''); setImage(''); setCode(''); setDescription(''); setStlUrl(''); setGlbUrl(''); setStatus('Analyzing image...');
     try {
       const formData = new FormData();
       formData.append('file', fileRef.current.files[0]);
@@ -55,6 +58,25 @@ export default function Home() {
       try { data = await res.json(); } catch { setError(`Server error (${res.status})`); setLoading(false); return; }
       if (data.image) { setImage('data:image/png;base64,' + data.image); setCode(data.scad_code || ''); setDescription(data.description || ''); setStlUrl(`${API}/download/stl?t=${Date.now()}`); setStatus('3D Model Generated!'); }
       else setError(data.error || data.detail || 'Failed: ' + JSON.stringify(data));
+    } catch (e) { setError('Error: ' + (e instanceof Error ? e.message : String(e))); }
+    setLoading(false);
+  };
+
+  const generateAIMesh = async () => {
+    if (!fileRef.current?.files?.[0]) { setError('Please upload an image!'); return; }
+    setLoading(true); setError(''); setImage(''); setCode(''); setDescription(''); setStlUrl(''); setGlbUrl(''); setStatus('AI generating high-quality 3D mesh (30-90s)...');
+    try {
+      const formData = new FormData();
+      formData.append('image', fileRef.current.files[0]);
+      const res = await fetch(`${API}/hf/hunyuan3d`, { method: 'POST', body: formData });
+      let data;
+      try { data = await res.json(); } catch { setError(`Server error (${res.status})`); setLoading(false); return; }
+      if (data.status === 'success' && data.glb_url) {
+        setGlbUrl(`${API}${data.glb_url}?t=${Date.now()}`);
+        setStatus('AI 3D mesh ready!');
+      } else {
+        setError(data.error || 'AI mesh generation failed. The AI service may be busy — try again in a minute.');
+      }
     } catch (e) { setError('Error: ' + (e instanceof Error ? e.message : String(e))); }
     setLoading(false);
   };
@@ -131,22 +153,39 @@ export default function Home() {
           <div>
             <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 mb-8">
               <div className="lg:col-span-2 bg-gray-900 rounded-2xl p-6">
-                <h2 className="text-xl font-semibold mb-4">📸 LLM Vision → 3D</h2>
-                <p className="text-gray-400 text-sm mb-4">LLM analyzes image → OpenSCAD → 3D model!</p>
+                <h2 className="text-xl font-semibold mb-4">📸 Image → 3D</h2>
                 <input ref={fileRef} type="file" accept="image/*" className="w-full bg-gray-800 rounded-xl p-4 text-white mb-4"/>
-                <button onClick={generateFromImage} disabled={loading} className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 rounded-xl py-3 font-semibold transition">
-                  {loading ? '⏳ AI Processing...' : '🧠 Generate 3D from Image'}
-                </button>
-                {(image || stlUrl) && <a href={`${API}/download/stl`} download="model.stl" className="block text-center w-full bg-green-600 hover:bg-green-700 rounded-xl py-3 font-semibold transition mt-3">⬇️ Download STL</a>}
+                {/* Mode selector */}
+                <div className="flex gap-2 mb-4">
+                  <button onClick={() => setImageMode('quick')} className={`flex-1 py-2 rounded-lg text-sm font-medium transition ${imageMode === 'quick' ? 'bg-purple-600 text-white' : 'bg-gray-800 text-gray-400'}`}>⚡ Quick Shape</button>
+                  <button onClick={() => setImageMode('ai')} className={`flex-1 py-2 rounded-lg text-sm font-medium transition ${imageMode === 'ai' ? 'bg-pink-600 text-white' : 'bg-gray-800 text-gray-400'}`}>🧠 AI Mesh</button>
+                </div>
+                {imageMode === 'quick' ? (
+                  <>
+                    <p className="text-gray-400 text-xs mb-3">Fast geometric approximation using shape analysis. Best for simple objects.</p>
+                    <button onClick={generateFromImage} disabled={loading} className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 rounded-xl py-3 font-semibold transition">
+                      {loading ? '⏳ Processing...' : '⚡ Generate Quick 3D'}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-gray-400 text-xs mb-3">High-quality photorealistic 3D mesh via Hunyuan3D-2 AI. Works with complex images (people, animals, furniture). Takes 30-90 seconds.</p>
+                    <button onClick={generateAIMesh} disabled={loading} className="w-full bg-pink-600 hover:bg-pink-700 disabled:bg-gray-600 rounded-xl py-3 font-semibold transition">
+                      {loading ? '⏳ AI generating mesh...' : '🧠 Generate AI 3D Mesh'}
+                    </button>
+                  </>
+                )}
+                {stlUrl && <a href={stlUrl} download="model.stl" className="block text-center w-full bg-green-600 hover:bg-green-700 rounded-xl py-3 font-semibold transition mt-3">⬇️ Download STL</a>}
+                {glbUrl && <a href={glbUrl} download="model.glb" className="block text-center w-full bg-emerald-600 hover:bg-emerald-700 rounded-xl py-3 font-semibold transition mt-2">⬇️ Download GLB</a>}
                 {status && <div className="mt-4 bg-blue-900 rounded-xl p-3 text-sm text-blue-200">{status}</div>}
                 {error && <div className="mt-4 bg-red-900 rounded-xl p-3 text-sm text-red-200">{error}</div>}
-                {description && <div className="mt-4 bg-gray-800 rounded-xl p-4"><h3 className="text-sm text-gray-400 mb-2">🔍 LLM Description:</h3><p className="text-white text-sm">{description}</p></div>}
+                {description && <div className="mt-4 bg-gray-800 rounded-xl p-4"><h3 className="text-sm text-gray-400 mb-2">🔍 Description:</h3><p className="text-white text-sm">{description}</p></div>}
                 {code && <div className="mt-4"><h3 className="text-sm text-gray-400 mb-2">OpenSCAD Code:</h3><pre className="bg-gray-800 rounded-xl p-4 text-sm overflow-auto max-h-48 text-green-400">{code}</pre></div>}
               </div>
               <div className="lg:col-span-3 bg-gray-900 rounded-2xl p-4 flex flex-col min-h-[600px]">
                 <div className="flex items-center justify-between mb-4 px-2">
                   <h2 className="text-xl font-semibold">🧊 3D Preview</h2>
-                  {(image || stlUrl) && !loading && (
+                  {(image || stlUrl || glbUrl) && !loading && (
                     <div className="flex gap-1 text-xs">
                       <button onClick={() => setView3D(true)} className={`px-4 py-1.5 rounded-lg font-medium transition ${view3D ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400'}`}>🎮 3D</button>
                       <button onClick={() => setView3D(false)} className={`px-4 py-1.5 rounded-lg font-medium transition ${!view3D ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400'}`}>📷 PNG</button>
@@ -154,25 +193,22 @@ export default function Home() {
                   )}
                 </div>
                 {loading && <div className="text-center flex-1 flex flex-col items-center justify-center"><p className="text-4xl mb-4 animate-pulse">⚙️</p><p className="text-gray-400">{status}</p></div>}
-                {stlUrl && !loading && view3D && (
+                {glbUrl && !loading && view3D && (
+                  <div className="flex-1 relative rounded-xl overflow-hidden" style={{ minHeight: '500px' }}>
+                    <GlbViewer glbUrl={glbUrl} />
+                  </div>
+                )}
+                {stlUrl && !loading && view3D && !glbUrl && (
                   <div className="flex-1 relative rounded-xl overflow-hidden" style={{ minHeight: '500px' }}>
                     <ModelViewer stlUrl={stlUrl} />
                   </div>
                 )}
                 {image && !loading && !view3D && <img src={image} alt="3D" className="rounded-xl w-full flex-1 object-contain"/>}
-                {!stlUrl && !image && !loading && <div className="text-gray-500 text-center flex-1 flex flex-col items-center justify-center"><p className="text-6xl mb-4">🧊</p><p>Upload an image!</p></div>}
-                {stlUrl && !loading && view3D && (
-                  <p className="text-xs text-gray-500 mt-2 text-center">🖱️ Drag to rotate · Scroll to zoom · Right-click to pan · 🔄 Auto-rotate button in bottom-right</p>
+                {!stlUrl && !glbUrl && !image && !loading && <div className="text-gray-500 text-center flex-1 flex flex-col items-center justify-center"><p className="text-6xl mb-4">🧊</p><p>Upload an image to generate a 3D model!</p></div>}
+                {(stlUrl || glbUrl) && !loading && view3D && (
+                  <p className="text-xs text-gray-500 mt-2 text-center">🖱️ Drag to rotate · Scroll to zoom · Right-click to pan</p>
                 )}
               </div>
-            </div>
-            <div className="bg-gray-900 rounded-2xl p-6 text-center">
-              <h2 className="text-xl font-semibold mb-4">✨ Stable Fast 3D — High Quality Mesh</h2>
-              <p className="text-gray-400 text-sm mb-6">For photorealistic 3D mesh generation</p>
-              <a href="https://huggingface.co/spaces/stabilityai/stable-fast-3d" target="_blank"
-                className="bg-pink-600 hover:bg-pink-700 px-8 py-4 rounded-xl font-semibold text-lg inline-block">
-                🚀 Open Stable Fast 3D
-              </a>
             </div>
           </div>
         )}

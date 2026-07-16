@@ -968,6 +968,29 @@ async def download_stl():
     )
 
 
+@app.get("/download/glb/{name}")
+async def download_glb(name: str):
+    """Download a GLB file by name (from HuggingFace mesh generation)."""
+    base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    glb_path = f"{base}/outputs/{name}.glb"
+    if not os.path.exists(glb_path):
+        # Also check Docker path
+        glb_path = f"/app/outputs/{name}.glb"
+    if not os.path.exists(glb_path):
+        raise HTTPException(status_code=404, detail="GLB file not found")
+    from fastapi.responses import Response
+    with open(glb_path, "rb") as f:
+        glb_data = f.read()
+    return Response(
+        content=glb_data,
+        media_type="model/gltf-binary",
+        headers={
+            "Content-Disposition": f'attachment; filename="{name}.glb"',
+            "Access-Control-Allow-Origin": "*",
+        },
+    )
+
+
 # ─── Meshy API Integration ──────────────────────────────────────────
 MESHY_API_KEY = os.environ.get("MESHY_API_KEY", "")
 MESHY_BASE_URL = "https://api.meshy.ai/openapi"
@@ -1400,6 +1423,7 @@ async def hf_hunyuan3d(
         result = client.predict(
             caption or "",               # caption (text prompt)
             image_arg,                    # image (uploaded image or None)
+            None, None, None, None,       # mv_image_front/back/left/right
             30,                           # steps
             5.0,                          # guidance_scale
             1234,                         # seed
@@ -1427,34 +1451,44 @@ async def hf_hunyuan3d(
         except OSError:
             pass
 
-    # Parse result — Hunyuan3D-2 returns mesh file path(s) + stats
-    glb_url, obj_url, mesh_stats = None, None, None
-    if isinstance(result, str):
-        if result.endswith(".glb"):
-            glb_url = result
-        elif result.endswith(".obj"):
-            obj_url = result
-        else:
-            mesh_stats = result
-    elif isinstance(result, (list, tuple)):
+    # Parse result — Hunyuan3D-2 returns (file_dict, html_str, stats_dict, seed)
+    # file_dict is {'value': '/path/to/white_mesh.glb', '__type__': 'update'}
+    glb_path = None
+    obj_path = None
+    mesh_stats = None
+    if isinstance(result, (list, tuple)):
         for item in result:
-            if isinstance(item, str):
+            if isinstance(item, dict) and "value" in item:
+                val = item["value"]
+                if isinstance(val, str) and val.endswith(".glb"):
+                    glb_path = val
+                elif isinstance(val, str) and val.endswith(".obj"):
+                    obj_path = val
+            elif isinstance(item, str):
                 if item.endswith(".glb"):
-                    glb_url = item
+                    glb_path = item
                 elif item.endswith(".obj"):
-                    obj_url = item
-                else:
-                    mesh_stats = item
+                    obj_path = item
             elif isinstance(item, dict):
                 mesh_stats = item
+
+    # Copy the GLB file to our outputs directory so we can serve it
+    glb_url = None
+    if glb_path and os.path.exists(glb_path):
+        name = datetime.now().strftime("%Y%m%d_%H%M%S")
+        base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        dest = f"{base}/outputs/{name}.glb"
+        import shutil as _shutil
+        _shutil.copy(glb_path, dest)
+        glb_url = f"/download/glb/{name}"
 
     return {
         "status": "success",
         "space": "hunyuan3d",
         "glb_url": glb_url,
-        "obj_url": obj_url,
+        "obj_url": None,
         "mesh_stats": mesh_stats,
-        "raw": str(result),
+        "raw": str(result)[:500],
     }
 
 
