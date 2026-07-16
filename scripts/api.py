@@ -1898,8 +1898,17 @@ def _llm_minimal(message: str, scene: dict) -> dict:
         }
     except Exception as e:
         print(f"Studio minimal LLM error: {e}")
+        # Fallback: try heuristic design
+        actions = _heuristic_design(message, scene)
+        if actions:
+            return {
+                "reply": f"Processed: {message} (heuristic mode)",
+                "actions": actions,
+                "model_used": "heuristic",
+                "tokens_used": 0,
+            }
         return {
-            "reply": f"Sorry, I couldn't process that. ({e})",
+            "reply": f"Sorry, I couldn't process that. Try simpler commands like 'add a cube 30mm'.",
             "actions": [],
             "model_used": "mistral",
             "tokens_used": 0,
@@ -1912,6 +1921,7 @@ def _llm_full(message: str, scene: dict, history: list[dict]) -> dict:
     """Use glm4 for complex/creative design requests.
 
     Token cost: higher (max_tokens=500). Includes scene context (object list only).
+    Falls back to heuristic design when Ollama is unavailable (e.g. Railway).
     """
     obj_list = []
     for obj in scene.get("objects", []):
@@ -1927,7 +1937,7 @@ def _llm_full(message: str, scene: dict, history: list[dict]) -> dict:
         "Return ONLY a JSON array of action objects. No explanation, no markdown.\n"
         "Each action: {\"type\":\"add\",\"object\":{\"type\":\"cube|sphere|cylinder|cone|union|difference\","
         "\"params\":{\"size\":N,\"radius\":N,\"height\":N,\"x\":N,\"y\":N,\"z\":N,"
-        "\"rotation\":[0,0,0]},\"children\":[...]}}\n"
+        "\"rotation\":[0,0,0]},\"children\":[...]}\n"
         "Other actions: {\"type\":\"delete|move|rotate|scale\",\"id\":\"obj_id\",...}\n"
         f"Current scene objects: {scene_json}\n"
     )
@@ -1961,12 +1971,114 @@ def _llm_full(message: str, scene: dict, history: list[dict]) -> dict:
         }
     except Exception as e:
         print(f"Studio full LLM error: {e}")
+        # Fallback: build a heuristic design from the message keywords
+        actions = _heuristic_design(message, scene)
+        if actions:
+            return {
+                "reply": f"Designed: {message} (heuristic mode — Ollama unavailable)",
+                "actions": actions,
+                "model_used": "heuristic",
+                "tokens_used": 0,
+            }
         return {
-            "reply": f"Sorry, I couldn't process that. ({e})",
+            "reply": f"Sorry, I couldn't process that. The AI service may be unavailable. Try simpler commands like 'add a cube 30mm'.",
             "actions": [],
             "model_used": TEXT_MODEL,
             "tokens_used": 0,
         }
+
+
+# ─── Heuristic design fallback (no LLM needed) ─────────────────────
+
+_DESIGN_PATTERNS = {
+    "phone stand": [
+        {"type": "add", "object": {"id": "", "type": "cube", "params": {"size": 60, "w": 60, "d": 40, "h": 5, "x": 0, "y": 0, "z": 0, "rotation": [0, 0, 0]}}},
+        {"type": "add", "object": {"id": "", "type": "cube", "params": {"size": 50, "w": 50, "d": 5, "h": 40, "x": 0, "y": -15, "z": 20, "rotation": [15, 0, 0]}}},
+        {"type": "add", "object": {"id": "", "type": "cube", "params": {"size": 50, "w": 50, "d": 5, "h": 8, "x": 0, "y": 15, "z": 4, "rotation": [0, 0, 0]}}},
+    ],
+    "gear": [
+        {"type": "add", "object": {"id": "", "type": "cylinder", "params": {"radius": 15, "height": 5, "x": 0, "y": 0, "z": 0, "rotation": [0, 0, 0]}}},
+        {"type": "add", "object": {"id": "", "type": "cylinder", "params": {"radius": 12, "height": 5, "x": 27, "y": 0, "z": 0, "rotation": [0, 0, 18]}}},
+        {"type": "add", "object": {"id": "", "type": "cylinder", "params": {"radius": 10, "height": 5, "x": 0, "y": 25, "z": 0, "rotation": [0, 0, 12]}}},
+    ],
+    "house": [
+        {"type": "add", "object": {"id": "", "type": "cube", "params": {"size": 40, "w": 40, "d": 40, "h": 30, "x": 0, "y": 0, "z": 0, "rotation": [0, 0, 0]}}},
+        {"type": "add", "object": {"id": "", "type": "cone", "params": {"radius": 30, "height": 20, "x": 0, "y": 0, "z": 25, "rotation": [0, 0, 0]}}},
+    ],
+    "table": [
+        {"type": "add", "object": {"id": "", "type": "cube", "params": {"size": 60, "w": 60, "d": 60, "h": 4, "x": 0, "y": 0, "z": 25, "rotation": [0, 0, 0]}}},
+        {"type": "add", "object": {"id": "", "type": "cylinder", "params": {"radius": 3, "height": 25, "x": -25, "y": -25, "z": 0, "rotation": [0, 0, 0]}}},
+        {"type": "add", "object": {"id": "", "type": "cylinder", "params": {"radius": 3, "height": 25, "x": 25, "y": -25, "z": 0, "rotation": [0, 0, 0]}}},
+        {"type": "add", "object": {"id": "", "type": "cylinder", "params": {"radius": 3, "height": 25, "x": -25, "y": 25, "z": 0, "rotation": [0, 0, 0]}}},
+        {"type": "add", "object": {"id": "", "type": "cylinder", "params": {"radius": 3, "height": 25, "x": 25, "y": 25, "z": 0, "rotation": [0, 0, 0]}}},
+    ],
+    "chair": [
+        {"type": "add", "object": {"id": "", "type": "cube", "params": {"size": 40, "w": 40, "d": 40, "h": 4, "x": 0, "y": 0, "z": 12, "rotation": [0, 0, 0]}}},
+        {"type": "add", "object": {"id": "", "type": "cylinder", "params": {"radius": 2, "height": 12, "x": -16, "y": -16, "z": 0, "rotation": [0, 0, 0]}}},
+        {"type": "add", "object": {"id": "", "type": "cylinder", "params": {"radius": 2, "height": 12, "x": 16, "y": -16, "z": 0, "rotation": [0, 0, 0]}}},
+        {"type": "add", "object": {"id": "", "type": "cylinder", "params": {"radius": 2, "height": 12, "x": -16, "y": 16, "z": 0, "rotation": [0, 0, 0]}}},
+        {"type": "add", "object": {"id": "", "type": "cylinder", "params": {"radius": 2, "height": 12, "x": 16, "y": 16, "z": 0, "rotation": [0, 0, 0]}}},
+        {"type": "add", "object": {"id": "", "type": "cube", "params": {"size": 40, "w": 40, "d": 4, "h": 12, "x": 0, "y": 18, "z": 18, "rotation": [0, 0, 0]}}},
+    ],
+    "rocket": [
+        {"type": "add", "object": {"id": "", "type": "cylinder", "params": {"radius": 5, "height": 40, "x": 0, "y": 0, "z": 0, "rotation": [0, 0, 0]}}},
+        {"type": "add", "object": {"id": "", "type": "cone", "params": {"radius": 5, "height": 15, "x": 0, "y": 0, "z": 40, "rotation": [0, 0, 0]}}},
+    ],
+    "snowman": [
+        {"type": "add", "object": {"id": "", "type": "sphere", "params": {"radius": 10, "x": 0, "y": 0, "z": 0, "rotation": [0, 0, 0]}}},
+        {"type": "add", "object": {"id": "", "type": "sphere", "params": {"radius": 7, "x": 0, "y": 0, "z": 18, "rotation": [0, 0, 0]}}},
+        {"type": "add", "object": {"id": "", "type": "sphere", "params": {"radius": 5, "x": 0, "y": 0, "z": 28, "rotation": [0, 0, 0]}}},
+    ],
+}
+
+
+def _heuristic_design(message: str, scene: dict) -> list[dict]:
+    """Build a design from the message using predefined patterns.
+
+    Used when Ollama is unavailable (e.g. on Railway). Matches keywords
+    in the message to predefined scene designs.
+    """
+    msg_lower = message.lower()
+    for pattern, actions in _DESIGN_PATTERNS.items():
+        if pattern in msg_lower:
+            # Assign unique IDs to each new object
+            for action in actions:
+                if action.get("type") == "add" and action.get("object"):
+                    action["object"]["id"] = _new_id()
+            return actions
+
+    # Try "make everything bigger/smaller" — scale all objects
+    if any(w in msg_lower for w in ["bigger", "larger", "make everything big"]):
+        actions = []
+        for obj in scene.get("objects", []):
+            actions.append({"type": "scale", "id": obj.get("id", ""), "factor": 1.5})
+        return actions
+    if any(w in msg_lower for w in ["smaller", "shrink", "make everything small"]):
+        actions = []
+        for obj in scene.get("objects", []):
+            actions.append({"type": "scale", "id": obj.get("id", ""), "factor": 0.7})
+        return actions
+
+    # Try "clear" / "delete all"
+    if any(w in msg_lower for w in ["clear all", "delete all", "remove all", "start over"]):
+        return [{"type": "clear"}]
+
+    # If the message contains a shape keyword, add that shape
+    for shape_word in ["cube", "box", "sphere", "ball", "cylinder", "cone", "tower"]:
+        if shape_word in msg_lower:
+            obj_id = _new_id()
+            if shape_word in ("cube", "box"):
+                return [{"type": "add", "object": {"id": obj_id, "type": "cube", "params": {"size": 20, "w": 20, "d": 20, "h": 20, "x": 0, "y": 0, "z": 0, "rotation": [0, 0, 0]}}}]
+            elif shape_word in ("sphere", "ball"):
+                return [{"type": "add", "object": {"id": obj_id, "type": "sphere", "params": {"radius": 15, "x": 0, "y": 0, "z": 0, "rotation": [0, 0, 0]}}}]
+            elif shape_word == "cylinder":
+                return [{"type": "add", "object": {"id": obj_id, "type": "cylinder", "params": {"radius": 10, "height": 30, "x": 0, "y": 0, "z": 0, "rotation": [0, 0, 0]}}}]
+            elif shape_word == "cone":
+                return [{"type": "add", "object": {"id": obj_id, "type": "cone", "params": {"radius": 15, "height": 25, "x": 0, "y": 0, "z": 0, "rotation": [0, 0, 0]}}}]
+            elif shape_word == "tower":
+                return [{"type": "add", "object": {"id": obj_id, "type": "cylinder", "params": {"radius": 8, "height": 60, "x": 0, "y": 0, "z": 0, "rotation": [0, 0, 0]}}}]
+
+    return []
 
 
 # ─── Smart routing logic ───────────────────────────────────────────

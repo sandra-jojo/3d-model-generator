@@ -90,12 +90,39 @@ export default function StudioPage() {
             for (const action of data.actions) {
               if (action.type === 'add' && action.object) {
                 newScene.objects.push(action.object);
-              } else if (action.type === 'delete' && action.object_id) {
-                newScene.objects = newScene.objects.filter(o => o.id !== action.object_id);
-              } else if (action.type === 'modify' && action.object_id && action.changes) {
+              } else if (action.type === 'delete') {
+                // Backend sends {"type":"delete","id":"obj_1"}
+                const oid = action.id || action.object_id;
+                newScene.objects = newScene.objects.filter(o => o.id !== oid);
+              } else if (action.type === 'modify' && (action.object_id || action.id) && action.changes) {
+                const oid = action.id || action.object_id;
                 newScene.objects = newScene.objects.map(o =>
-                  o.id === action.object_id ? { ...o, params: { ...o.params, ...action.changes } } : o
+                  o.id === oid ? { ...o, params: { ...o.params, ...action.changes } } : o
                 );
+              } else if (action.type === 'move' && (action.id || action.object_id) && action.params) {
+                const oid = action.id || action.object_id;
+                newScene.objects = newScene.objects.map(o =>
+                  o.id === oid ? { ...o, params: { ...o.params, ...action.params } } : o
+                );
+              } else if (action.type === 'rotate' && (action.id || action.object_id) && action.params) {
+                const oid = action.id || action.object_id;
+                newScene.objects = newScene.objects.map(o =>
+                  o.id === oid ? { ...o, params: { ...o.params, ...action.params } } : o
+                );
+              } else if (action.type === 'scale' && (action.id || action.object_id) && action.factor) {
+                const oid = action.id || action.object_id;
+                newScene.objects = newScene.objects.map(o => {
+                  if (o.id !== oid) return o;
+                  const f = action.factor;
+                  const p = { ...o.params };
+                  if (p.size) p.size = Math.round(p.size * f);
+                  if (p.radius) p.radius = Math.round(p.radius * f);
+                  if (p.height) p.height = Math.round(p.height * f);
+                  if (p.w) p.w = Math.round(p.w * f);
+                  if (p.d) p.d = Math.round(p.d * f);
+                  if (p.h) p.h = Math.round(p.h * f);
+                  return { ...o, params: p };
+                });
               } else if (action.type === 'clear') {
                 newScene.objects = [];
               }
@@ -155,8 +182,11 @@ export default function StudioPage() {
       const data = await res.json();
       const template = data.templates?.[name];
       if (template) {
-        setScene(template);
-        setMessages(prev => [...prev, { role: 'assistant', content: `Loaded template: ${name}`, model: 'system', tokens: 0 }]);
+        // Template structure is {name, description, scene: {objects: [...]}}
+        // We need to load the .scene property, not the wrapper
+        const sceneData = template.scene || template;
+        setScene(sceneData);
+        setMessages(prev => [...prev, { role: 'assistant', content: `Loaded template: ${template.name || name}`, model: 'system', tokens: 0 }]);
       }
     } catch { /* silent */ }
   };
