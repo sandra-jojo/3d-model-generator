@@ -493,62 +493,134 @@ def ollama_vision(image_base64: str, prompt: str, model: str = None) -> str:
         return ""
 
 
-# ─── HuggingFace Inference API (free, cloud-based vision) ───────────
-# Used as primary vision model when Ollama is not available (e.g. Railway).
-# BLIP model: Salesforce/blip-image-captioning-large — free, no API key required.
+# ─── Local image analysis (no external API needed) ──────────────────
+# Uses Pillow to extract visual features (aspect ratio, dominant colors,
+# edge density, symmetry) and infer a shape. Works on Railway without
+# any API key or external service.
 
-HF_INFERENCE_URL = os.environ.get(
-    "HF_INFERENCE_URL",
-    "https://api-inference.huggingface.co/models/Salesforce/blip-image-captioning-large",
-)
+def _local_image_analysis(image_bytes: bytes) -> str:
+    """Analyze image locally using Pillow and return a description.
 
+    Extracts:
+    - Aspect ratio (tall, wide, square)
+    - Dominant colors (for material/texture hints)
+    - Edge density (simple vs complex shape)
+    - Bounding-box fill ratio (solid vs sparse)
 
-def hf_vision_caption(image_bytes: bytes) -> str:
-    """Call HuggingFace Inference API (BLIP) for image captioning.
-
-    Returns a natural-language description of the image.
-    No API key required (rate-limited on free tier). If HF_TOKEN is set,
-    higher rate limits apply.
+    Returns a descriptive string like "a tall green object" that the
+    heuristic converter can map to an OpenSCAD shape.
     """
-    headers = {}
-    if HF_TOKEN:
-        headers["Authorization"] = f"Bearer {HF_TOKEN}"
     try:
-        resp = httpx.post(
-            HF_INFERENCE_URL,
-            content=image_bytes,
-            headers=headers,
-            timeout=30.0,
-        )
-        if resp.status_code == 503:
-            # Model is loading — wait and retry once
-            import time
-            time.sleep(5)
-            resp = httpx.post(
-                HF_INFERENCE_URL,
-                content=image_bytes,
-                headers=headers,
-                timeout=30.0,
-            )
-        resp.raise_for_status()
-        data = resp.json()
-        if isinstance(data, list) and data:
-            # BLIP returns [{"generated_text": "..."}]
-            return data[0].get("generated_text", "")
-        elif isinstance(data, dict) and "generated_text" in data:
-            return data["generated_text"]
-        return str(data)
+        from PIL import Image
+        import io
+
+        img = Image.open(io.BytesIO(image_bytes))
+        img = img.convert("RGB")
+        w, h = img.size
+
+        # Sample a small version for speed
+        img_small = img.resize((64, 64))
+        pixels = list(img_small.getdata())
+
+        # --- Aspect ratio ---
+        ratio = h / w if w > 0 else 1
+        if ratio > 1.5:
+            shape_hint = "tall"
+        elif ratio < 0.6:
+            shape_hint = "wide"
+        else:
+            shape_hint = "square"
+
+        # --- Dominant color ---
+        r_sum = g_sum = b_sum = 0
+        for r, g, b in pixels:
+            r_sum += r
+            g_sum += g
+            b_sum += b
+        n = len(pixels)
+        avg_r = r_sum / n
+        avg_g = g_sum / n
+        avg_b = b_sum / n
+
+        # Color name
+        if avg_r > 150 and avg_g < 100 and avg_b < 100:
+            color_name = "red"
+        elif avg_g > 150 and avg_r < 100:
+            color_name = "green"
+        elif avg_b > 150 and avg_r < 100:
+            color_name = "blue"
+        elif avg_r > 200 and avg_g > 200 and avg_b < 100:
+            color_name = "yellow"
+        elif avg_r > 100 and avg_g < 80 and avg_b < 80:
+            color_name = "brown"
+        elif avg_r > 200 and avg_g > 200 and avg_b > 200:
+            color_name = "white"
+        elif avg_r < 80 and avg_g < 80 and avg_b < 80:
+            color_name = "black"
+        elif avg_r > 150 and avg_g > 100 and avg_b < 100:
+            color_name = "orange"
+        elif avg_r > 100 and avg_g > 80 and avg_b < 80:
+            color_name = "brown"
+        else:
+            color_name = "colored"
+
+        # --- Edge density (complexity) ---
+        # Simple: few edges → geometric shape. Many edges → complex object.
+        gray = img_small.convert("L")
+        gray_pixels = list(gray.getdata())
+        edge_count = 0
+        for y in range(64):
+            for x in range(63):
+                idx = y * 64 + x
+                if abs(gray_pixels[idx] - gray_pixels[idx + 1]) > 30:
+                    edge_count += 1
+        edge_density = edge_count / (64 * 63)
+        if edge_density > 0.15:
+            complexity = "detailed"
+        else:
+            complexity = "simple"
+
+        # --- Fill ratio (solid vs hollow/sparse) ---
+        # Count non-background pixels (deviation from corners)
+        corners = [pixels[0], pixels[63], pixels[64 * 63], pixels[64 * 63 - 1]]
+        bg_r = sum(c[0] for c in corners) / 4
+        bg_g = sum(c[1] for c in corners) / 4
+        bg_b = sum(c[2] for c in corners) / 4
+        non_bg = 0
+        for r, g, b in pixels:
+            if abs(r - bg_r) > 30 or abs(g - bg_g) > 30 or abs(b - bg_b) > 30:
+                non_bg += 1
+        fill_ratio = non_bg / n
+        if fill_ratio > 0.7:
+            solidity = "solid"
+        elif fill_ratio > 0.3:
+            solidity = "medium"
+        else:
+            solidity = "sparse"
+
+        # --- Build description ---
+        parts = [shape_hint, color_name]
+        if complexity == "detailed":
+            parts.append("detailed")
+        if solidity == "solid":
+            parts.append("solid")
+
+        desc = "a " + " ".join(parts) + " object"
+        print(f"Image analysis: {desc} (ratio={ratio:.2f}, edges={edge_density:.2f}, fill={fill_ratio:.2f})")
+        return desc
+
     except Exception as e:
-        print(f"HF vision error: {e}")
+        print(f"Local image analysis error: {e}")
         return ""
 
 
 def describe_image(image_bytes: bytes, image_base64: str) -> str:
     """Get a description of the image. Tries Ollama vision first (local),
-    falls back to HuggingFace Inference API (cloud, free).
+    falls back to local Pillow-based image analysis (no external API needed).
+
     Returns a non-empty description, or empty string if both fail.
     """
-    # Try Ollama first (fast if running locally)
+    # Try Ollama first (fast if running locally with vision model)
     desc = ollama_vision(
         image_base64,
         "Describe this object in 1 sentence for 3D modeling. Focus on shape, size, key features.",
@@ -556,11 +628,9 @@ def describe_image(image_bytes: bytes, image_base64: str) -> str:
     if desc and len(desc) > 5 and "simple cube" not in desc.lower():
         return desc
 
-    # Fall back to HuggingFace BLIP (cloud, free)
-    desc = hf_vision_caption(image_bytes)
+    # Fall back to local image analysis (Pillow — no external API needed)
+    desc = _local_image_analysis(image_bytes)
     if desc and len(desc) > 3:
-        # BLIP gives a caption like "a house with a red roof"
-        # Enhance it for 3D modeling context
         return desc.strip()
 
     return ""
