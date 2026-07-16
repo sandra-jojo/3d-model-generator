@@ -32,6 +32,10 @@ OLLAMA_API_KEY = os.environ.get("OLLAMA_API_KEY", "ollama")
 TEXT_MODEL = os.environ.get("OLLAMA_TEXT_MODEL", "glm4")
 VISION_MODEL = os.environ.get("OLLAMA_VISION_MODEL", "llama3.2-vision")
 
+# HuggingFace token — used for both HF Spaces and Inference API (free, optional).
+# Defined here (early) so vision functions can use it.
+HF_TOKEN = os.environ.get("HF_TOKEN", "")
+
 ollama_client = OpenAI(base_url=OLLAMA_BASE_URL, api_key=OLLAMA_API_KEY)
 
 # ─── OpenSCAD binary path ────────────────────────────────────────
@@ -308,6 +312,105 @@ def find_shape_in_library(text):
             return code
     return None
 
+
+# ─── Caption → OpenSCAD heuristic conversion ────────────────────────
+# Used when the image caption from BLIP doesn't match any shape in the
+# SHAPES library and Ollama is unavailable (e.g. on Railway).  This
+# analyses the caption keywords to produce a reasonable 3D approximation.
+
+# Keyword → shape mapping (checked in priority order).
+_CAPTION_SHAPE_MAP = [
+    # People / animals / characters
+    (["person", "man", "woman", "people", "human", "boy", "girl", "child"],
+     "union() {\n  cylinder(h=30, r=5);\n  translate([0,0,30]) sphere(r=8);\n  translate([-6,0,38]) sphere(r=2);\n  translate([6,0,38]) sphere(r=2);\n}"),
+    (["cat", "kitten"], SHAPES["cat"]),
+    (["dog", "puppy"],
+     "union() {\n  cube([30,15,15], center=true);\n  translate([12,0,5]) sphere(r=8);\n  translate([15,5,10]) cylinder(h=6, r1=3, r2=1);\n  translate([15,-5,10]) cylinder(h=6, r1=3, r2=1);\n  translate([-15,5,0]) cylinder(h=12, r=3);\n  translate([-15,-5,0]) cylinder(h=12, r=3);\n}"),
+    # Furniture
+    (["chair", "stool"], SHAPES["chair"]),
+    (["table", "desk"], SHAPES["table"]),
+    (["sofa", "couch"],
+     "union() {\n  cube([60,25,15], center=true);\n  translate([0,12,12]) cube([60,8,20], center=true);\n  translate([-25,-12,0]) cylinder(h=10, r=3);\n  translate([25,-12,0]) cylinder(h=10, r=3);\n  translate([-25,12,0]) cylinder(h=10, r=3);\n  translate([25,12,0]) cylinder(h=10, r=3);\n}"),
+    # Buildings / structures
+    (["house", "home", "building", "cottage", "cabin", "hut"], SHAPES["house"]),
+    (["tower", "skyscraper"],
+     "union() {\n  cube([20,20,60], center=true);\n  translate([0,0,35]) cylinder(h=10, r1=12, r2=2);\n}"),
+    (["castle"],
+     "union() {\n  cube([40,40,30], center=true);\n  translate([-15,-15,20]) cylinder(h=15, r=5);\n  translate([15,-15,20]) cylinder(h=15, r=5);\n  translate([-15,15,20]) cylinder(h=15, r=5);\n  translate([15,15,20]) cylinder(h=15, r=5);\n}"),
+    (["church"],
+     "union() {\n  cube([30,50,20], center=true);\n  translate([0,0,20]) cylinder(h=25, r1=8, r2=0);\n}"),
+    (["bridge"],
+     "union() {\n  translate([0,0,5]) cube([60,10,4], center=true);\n  translate([-20,-8,0]) cylinder(h=10, r=5);\n  translate([20,-8,0]) cylinder(h=10, r=5);\n  translate([-20,8,0]) cylinder(h=10, r=5);\n  translate([20,8,0]) cylinder(h=10, r=5);\n}"),
+    # Vehicles
+    (["car", "vehicle", "automobile", "sedan"], SHAPES["car"]),
+    (["truck", "lorry"],
+     "union() {\n  cube([70,25,15], center=true);\n  translate([20,0,12]) cube([25,22,15], center=true);\n  translate([-25,-15,0]) cylinder(h=5, r=8);\n  translate([25,-15,0]) cylinder(h=5, r=8);\n  translate([-25,15,0]) cylinder(h=5, r=8);\n  translate([25,15,0]) cylinder(h=5, r=8);\n}"),
+    (["rocket", "missile", "spaceship"], SHAPES["rocket"]),
+    (["plane", "airplane", "aircraft"],
+     "union() {\n  cylinder(h=40, r=4);\n  translate([0,0,20]) rotate([0,0,0]) cube([4,30,2], center=true);\n  translate([0,0,15]) cube([2,6,12], center=true);\n}"),
+    (["boat", "ship"],
+     "union() {\n  cylinder(h=5, r1=20, r2=15);\n  translate([0,0,5]) cube([4,30,20], center=true);\n}"),
+    (["bicycle", "bike"],
+     "union() {\n  cylinder(h=2, r=15);\n  translate([0,30,0]) cylinder(h=2, r=15);\n  translate([0,15,15]) cube([2,30,2], center=true);\n}"),
+    # Nature
+    (["tree", "oak", "pine", "forest"], SHAPES["tree"]),
+    (["flower"],
+     "union() {\n  cylinder(h=20, r=2);\n  translate([0,0,20]) sphere(r=8);\n  translate([6,0,22]) sphere(r=3);\n  translate([-6,0,22]) sphere(r=3);\n  translate([0,6,22]) sphere(r=3);\n  translate([0,-6,22]) sphere(r=3);\n}"),
+    (["mountain"],
+     "cylinder(h=40, r1=30, r2=0);"),
+    (["mushroom"], SHAPES["mushroom"]),
+    # Food / objects
+    (["bottle", "flask"], SHAPES["bottle"]),
+    (["cup", "mug", "glass"],
+     "union() {\n  cylinder(h=15, r=8);\n  translate([10,0,10]) rotate([90,0,0]) cylinder(h=4, r=5);\n}"),
+    (["bowl"],
+     "union() {\n  cylinder(h=8, r1=15, r2=12);\n  cylinder(h=6, r1=13, r2=10);\n}"),
+    (["ball", "sphere", "orb", "marble"], SHAPES["sphere"]),
+    (["box", "crate", "container", "package", "cardboard"], SHAPES["box"]),
+    (["phone", "smartphone", "mobile"], SHAPES["phone"]),
+    (["bat", "baseball bat", "club"], SHAPES["bat"]),
+    (["star"], SHAPES["star"]),
+    (["heart", "love", "valentine"], SHAPES["heart"]),
+    (["ring", "band", "jewelry"], SHAPES["ring"]),
+    (["trophy", "cup award", "medal"], SHAPES["trophy"]),
+    (["pyramid", "triangle"], SHAPES["pyramid"]),
+    (["snowman"], SHAPES["snowman"]),
+    # Geometric primitives (fallback patterns)
+    (["cone", "funnel"], SHAPES["cone"]),
+    (["cylinder", "pipe", "tube", "column", "pillar"], SHAPES["cylinder"]),
+]
+
+
+def _caption_to_scad(caption: str) -> str:
+    """Convert an image caption (from BLIP) to OpenSCAD code using heuristics.
+
+    This is used when Ollama is not available (e.g. on Railway) and the
+    caption doesn't match the SHAPES library directly.  It scans the
+    caption for keywords and returns the best-matching OpenSCAD shape.
+    """
+    cap_lower = caption.lower()
+
+    # Try keyword-based matching
+    for keywords, scad in _CAPTION_SHAPE_MAP:
+        for kw in keywords:
+            if kw in cap_lower:
+                return scad
+
+    # Shape inference from descriptive adjectives
+    if any(w in cap_lower for w in ["round", "spherical", "ball", "globe", "circular"]):
+        return SHAPES["sphere"]
+    if any(w in cap_lower for w in ["tall", "long", "thin", "slender", "narrow"]):
+        return "cylinder(h=40, r=5);"
+    if any(w in cap_lower for w in ["flat", "thin", "sheet", "plate", "panel"]):
+        return "cube([40,40,3], center=true);"
+    if any(w in cap_lower for w in ["cube", "box", "square", "rectangular", "block"]):
+        return SHAPES["box"]
+    if any(w in cap_lower for w in ["cylindrical", "tube", "pipe", "rod"]):
+        return SHAPES["cylinder"]
+
+    # Final fallback — a simple cube, NOT a sphere
+    return SHAPES["box"]
+
 # Known-good shape used whenever LLM output cannot be salvaged.
 FALLBACK_SCAD = "union() {\n  sphere(r=10);\n  translate([0,0,10]) cube([5,5,5], center=true);\n}"
 
@@ -387,7 +490,80 @@ def ollama_vision(image_base64: str, prompt: str, model: str = None) -> str:
         return response.choices[0].message.content.strip()
     except Exception as e:
         print(f"Ollama vision error ({model}): {e}")
-        return "a simple cube"
+        return ""
+
+
+# ─── HuggingFace Inference API (free, cloud-based vision) ───────────
+# Used as primary vision model when Ollama is not available (e.g. Railway).
+# BLIP model: Salesforce/blip-image-captioning-large — free, no API key required.
+
+HF_INFERENCE_URL = os.environ.get(
+    "HF_INFERENCE_URL",
+    "https://api-inference.huggingface.co/models/Salesforce/blip-image-captioning-large",
+)
+
+
+def hf_vision_caption(image_bytes: bytes) -> str:
+    """Call HuggingFace Inference API (BLIP) for image captioning.
+
+    Returns a natural-language description of the image.
+    No API key required (rate-limited on free tier). If HF_TOKEN is set,
+    higher rate limits apply.
+    """
+    headers = {}
+    if HF_TOKEN:
+        headers["Authorization"] = f"Bearer {HF_TOKEN}"
+    try:
+        resp = httpx.post(
+            HF_INFERENCE_URL,
+            content=image_bytes,
+            headers=headers,
+            timeout=30.0,
+        )
+        if resp.status_code == 503:
+            # Model is loading — wait and retry once
+            import time
+            time.sleep(5)
+            resp = httpx.post(
+                HF_INFERENCE_URL,
+                content=image_bytes,
+                headers=headers,
+                timeout=30.0,
+            )
+        resp.raise_for_status()
+        data = resp.json()
+        if isinstance(data, list) and data:
+            # BLIP returns [{"generated_text": "..."}]
+            return data[0].get("generated_text", "")
+        elif isinstance(data, dict) and "generated_text" in data:
+            return data["generated_text"]
+        return str(data)
+    except Exception as e:
+        print(f"HF vision error: {e}")
+        return ""
+
+
+def describe_image(image_bytes: bytes, image_base64: str) -> str:
+    """Get a description of the image. Tries Ollama vision first (local),
+    falls back to HuggingFace Inference API (cloud, free).
+    Returns a non-empty description, or empty string if both fail.
+    """
+    # Try Ollama first (fast if running locally)
+    desc = ollama_vision(
+        image_base64,
+        "Describe this object in 1 sentence for 3D modeling. Focus on shape, size, key features.",
+    )
+    if desc and len(desc) > 5 and "simple cube" not in desc.lower():
+        return desc
+
+    # Fall back to HuggingFace BLIP (cloud, free)
+    desc = hf_vision_caption(image_bytes)
+    if desc and len(desc) > 3:
+        # BLIP gives a caption like "a house with a red roof"
+        # Enhance it for 3D modeling context
+        return desc.strip()
+
+    return ""
 
 
 def render(scad_code, scad_path, png_path, stl_path):
@@ -640,21 +816,22 @@ async def route(request: PromptRequest):
 
 @app.post("/generate_from_image")
 async def generate_from_image(file: UploadFile = File(...)):
-    """Image → 3D Model using Ollama vision model."""
+    """Image → 3D Model using vision AI (Ollama → HuggingFace BLIP fallback)."""
     image_data = await file.read()
     image_base64 = base64.b64encode(image_data).decode()
 
-    # Step 1: Vision LLM — describe image
-    description = ollama_vision(
-        image_base64,
-        "Describe this object in 1 sentence for 3D modeling. Focus on shape, size, key features."
-    )
+    # Step 1: Vision AI — describe image (Ollama first, HF BLIP fallback)
+    description = describe_image(image_data, image_base64)
 
-    # Step 2: Check SHAPES library first
+    # If both vision services fail, use a generic description
+    if not description:
+        description = "a basic geometric shape"
+
+    # Step 2: Check SHAPES library first (keyword match against description)
     scad_code = find_shape_in_library(description)
 
     if not scad_code:
-        # Use Ollama for unknown shapes
+        # Use Ollama for unknown shapes (works locally only)
         scad_code = ollama_generate(
             "Generate simple valid OpenSCAD code. STRICT RULES: "
             "1) Use ONLY these functions: cube(), sphere(), cylinder(), translate(), union(){} "
@@ -664,7 +841,13 @@ async def generate_from_image(file: UploadFile = File(...)):
         )
     scad_code = sanitize_scad(scad_code)
 
-    # Step 3: Render
+    # Step 3: If Ollama not available (e.g. on Railway), generate OpenSCAD
+    # from the BLIP caption using heuristics. This ensures image-to-3D
+    # works on the cloud deployment without a local Ollama server.
+    if not scad_code or scad_code == FALLBACK_SCAD:
+        scad_code = _caption_to_scad(description)
+
+    # Step 4: Render
     name = datetime.now().strftime("%Y%m%d_%H%M%S")
     base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     scad_path = f"{base}/models/{name}.scad"
@@ -942,9 +1125,7 @@ async def tripo_task_status(task_id: str):
 
 # ─── HuggingFace Spaces Integration ─────────────────────────────────
 # Calls free HuggingFace Spaces via gradio_client for 3D model generation.
-# No API key required (optional HF_TOKEN for higher rate limits).
-
-HF_TOKEN = os.environ.get("HF_TOKEN", "")
+# HF_TOKEN is defined at the top of this file (used by both vision + spaces).
 
 # Space URLs
 HF_TRIPOSR_URL = "https://stabilityai-triposr.hf.space"
