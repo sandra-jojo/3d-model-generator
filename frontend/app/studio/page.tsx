@@ -9,6 +9,9 @@ interface SceneObject {
     size?: number;
     radius?: number;
     height?: number;
+    w?: number;
+    d?: number;
+    h?: number;
     x?: number;
     y?: number;
     z?: number;
